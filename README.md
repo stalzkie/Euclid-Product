@@ -216,6 +216,22 @@ the `Host` header carries the internal name. If `NEXT_PUBLIC_APP_URL` is
 unset the rewrite is skipped entirely, so a missing variable makes custom
 domains inert rather than making the dashboard unreachable.
 
+## Repository context
+
+With GitHub connected, a Build Prompt can name real files instead of saying
+"the relevant file". **Only the file listing is read — never the contents of
+any file**, so no code passes through Euclid or reaches a model.
+
+The listing is stored as a snapshot, so generating a prompt never waits on
+GitHub. The prompt gets the directory shape, the files that identify the
+stack, and a short list of paths whose names match the request — labelled as
+matched on filename alone, because that is all it is.
+
+The snapshot also sharpens the invented-path filter. Without a repository,
+any path the model writes that the founder did not mention is replaced with
+"the relevant file". With one, paths are checked against the real tree:
+genuine ones survive, invented ones still do not.
+
 ## Background jobs
 
 Point a scheduler at these with `Authorization: Bearer $CRON_SECRET`:

@@ -1,3 +1,4 @@
+import { repoSection, type RepoSnapshot } from "./repo";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { MODEL_STRONG, estimateTokens, requireAnthropic } from "./client";
@@ -76,6 +77,8 @@ export interface GenerateInput {
   refinement?: string | null;
   /** The previous body, when refining rather than generating fresh. */
   previous?: string | null;
+  /** Read-only file listing of the founder's repo, when one is connected. */
+  repo?: RepoSnapshot | null;
 }
 
 export interface GenerateResult {
@@ -191,6 +194,20 @@ function buildUserTurn(input: GenerateInput, repoAware: boolean): string {
       "TARGET TOOL has no repository access. Do not reference any file path, " +
         "directory or existing symbol. Describe the change in product terms.",
     );
+  } else if (input.repo) {
+    // With a real file listing the model can name real paths. It is still
+    // only a listing: no file has been read, so the instruction is to orient
+    // by it and verify, not to assume what any file contains.
+    const section = repoSection(input.repo, `${input.post.title} ${input.post.body ?? ""}`);
+    if (section) {
+      parts.push(
+        `${section}
+
+Use these paths when they fit. This is a file listing only — ` +
+          "no file has been read, so do not assert what any of them contains. " +
+          "Never name a path that is not in this listing.",
+      );
+    }
   }
 
   if (input.refinement && input.previous) {
@@ -297,9 +314,15 @@ export function assemblePrompt(
 
   let body = parts.join("\n\n");
 
-  // Without repo access a prompt must not invent paths. Anything not present in
-  // the founder's own profile or rules file gets generalised.
-  const allowed = [profile?.rules_file ?? "", profile?.conventions ?? ""].join("\n");
+  // A prompt must not invent paths. What counts as real is the founder's own
+  // profile and rules file, plus — when a repository is connected — every path
+  // actually in it. With a snapshot this stops being a blunt filter that
+  // generalises every path, and becomes a check against the real tree.
+  const allowed = [
+    profile?.rules_file ?? "",
+    profile?.conventions ?? "",
+    (input.repo?.paths ?? []).join("\n"),
+  ].join("\n");
   body = stripInventedPaths(body, allowed);
   body = repairText(body);
   body = capPrompt(body);

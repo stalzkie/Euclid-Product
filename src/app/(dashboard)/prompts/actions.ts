@@ -21,6 +21,7 @@ import {
   type PromptIncludes,
   type PromptTarget,
 } from "@/lib/types";
+import { getRepoSnapshot } from "@/server/repo-context";
 
 /**
  * Build Prompt generation and refinement. Every call checks the workspace's
@@ -86,6 +87,7 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
     founderNotes: input.founderNotes,
     refinement: input.refinement ?? null,
     previous: demand.previousBody,
+    repo: await getRepoSnapshot(ctx.board.id),
   };
 
   let draft;

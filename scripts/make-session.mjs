@@ -42,10 +42,17 @@ const member = await fetch(`${url}/rest/v1/workspace_members`, {
 console.log("membership ->", member.status === 201 || member.status === 200 ? "ok" : await member.text());
 
 // A magic link that logs straight in.
+//
+// `redirect_to` goes at the top level. Nesting it under `options` is the
+// supabase-js convention, not the REST one: GoTrue ignores the unknown key and
+// silently falls back to the project's Site URL. The token then lands as a
+// fragment on "/", which the middleware bounces to /signup, and the sign-in is
+// lost with no error anywhere.
 const link = await fetch(`${url}/auth/v1/admin/generate_link`, {
   method: "POST", headers: h,
-  body: JSON.stringify({ type: "magiclink", email, options: { redirect_to: `${app}/auth/callback` } }),
+  body: JSON.stringify({ type: "magiclink", email, redirect_to: `${app}/auth/callback` }),
 }).then(r => r.json());
 
 const action = link.properties?.action_link ?? link.action_link;
+if (!action) { console.error("generate_link failed:", link); process.exit(1); }
 console.log("\nSIGN-IN LINK:\n" + action);
