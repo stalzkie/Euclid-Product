@@ -160,6 +160,18 @@ target host before they start; set `TEST_SUPABASE_URL` and
 workspace and deletes it afterwards. If no app or database answers, the suite
 skips rather than fails.
 
+### CI
+
+`.github/workflows/ci.yml` runs typecheck and lint, the unit suite, the
+integration suite against a throwaway Supabase stack it starts itself, and a
+production build using placeholder environment values — which is also the
+proof that the app builds without any real credential.
+
+**It needs no GitHub Actions secrets.** Nothing in the workflow reads
+`secrets.*`. If you later add a job that deploys or talks to the live
+project, that is the point at which secrets become necessary; until then
+there is nothing to configure, and nothing of yours is stored on GitHub.
+
 Tests were checked by mutation: the implementation was deliberately broken
 (accept any JWT algorithm, skip the signature check, remove the honeypot,
 bypass the allow-list, reinstate the clustering drift bug) and each test that
