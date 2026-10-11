@@ -34,7 +34,11 @@ export async function stackIsUp(): Promise<boolean> {
       fetch(`${APP_URL}/widget.js`, { method: "HEAD" }),
       fetch(`${SUPABASE_URL}/rest/v1/boards?select=id&limit=1`, { headers: dbHeaders }),
     ]);
-    return app.ok && db.ok;
+    const up = app.ok && db.ok;
+    // These tests write real rows. Say where, so nobody discovers afterwards
+    // that the target was the production project rather than a local stack.
+    if (up) console.info(`  integration target: ${APP_URL} against ${new URL(SUPABASE_URL).host}`);
+    return up;
   } catch {
     return false;
   }

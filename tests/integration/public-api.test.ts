@@ -122,6 +122,57 @@ suite("public board API", () => {
       expect(second.body.votes).toBe(first.body.votes + 1);
     });
 
+    it("stops an anonymous visitor at the board's vote allowance", async () => {
+      // One cookie should not be able to vote for everything on the board.
+      await db.patch(`boards?id=eq.${fixture.boardId}`, {
+        identity_mode: "anonymous",
+        anon_vote_limit: 1,
+      });
+
+      try {
+        const visitor = createVisitor();
+        const [one, two] = fixture.posts;
+
+        const first = await visitor.call("/api/public/vote", {
+          method: "POST",
+          body: JSON.stringify({ board: fixture.publicId, postId: one.id }),
+        });
+        expect(first.status).toBe(200);
+
+        const blocked = await visitor.call<{ error: string }>("/api/public/vote", {
+          method: "POST",
+          body: JSON.stringify({ board: fixture.publicId, postId: two.id }),
+        });
+
+        expect(blocked.status).toBe(403);
+        expect(blocked.body.error).toContain("up to 1 idea.");
+
+        // At the limit they must still be able to change their mind, or the
+        // allowance would be a trap rather than a budget.
+        const undo = await visitor.call<{ voted: boolean }>("/api/public/vote", {
+          method: "POST",
+          body: JSON.stringify({ board: fixture.publicId, postId: one.id }),
+        });
+
+        expect(undo.status).toBe(200);
+        expect(undo.body.voted).toBe(false);
+
+        // And the freed slot is usable.
+        const retry = await visitor.call<{ voted: boolean }>("/api/public/vote", {
+          method: "POST",
+          body: JSON.stringify({ board: fixture.publicId, postId: two.id }),
+        });
+
+        expect(retry.status).toBe(200);
+        expect(retry.body.voted).toBe(true);
+      } finally {
+        await db.patch(`boards?id=eq.${fixture.boardId}`, {
+          identity_mode: "email",
+          anon_vote_limit: 10,
+        });
+      }
+    });
+
     it("rejects a post id that is not a uuid", async () => {
       const { status } = await createVisitor().call("/api/public/vote", {
         method: "POST",

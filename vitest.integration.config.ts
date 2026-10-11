@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -12,6 +13,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Without this the suite finds no database and skips itself, which looks
+    // like a pass. The empty prefix loads every key, not just VITE_ ones.
+    env: loadEnv("test", process.cwd(), ""),
     include: ["tests/integration/**/*.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,

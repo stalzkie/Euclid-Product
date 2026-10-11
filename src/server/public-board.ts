@@ -1,3 +1,4 @@
+import { plural } from "@/lib/format";
 import { supabaseAdmin, hasServiceRole } from "@/lib/supabase/server";
 import { mergeDesign } from "@/lib/design-presets";
 import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
@@ -345,43 +346,50 @@ export async function toggleVote(
   // A vote on a merged post lands on the post it merged into.
   const target = post.merged_into ?? post.id;
 
-  const { data: existing } = await db
-    .from("votes")
-    .select("id")
-    .eq("post_id", target)
-    .eq("end_user_id", viewer.id)
-    .maybeSingle();
+  // Anonymous visitors get a small allowance, so that one cookie cannot vote
+  // for everything. Checked before the toggle: a visitor at the limit may
+  // still remove a vote, which this count permits because removal is a
+  // toggle-off of a vote they already hold.
+  if (viewer.kind === "anonymous") {
+    const { count } = await db
+      .from("votes")
+      .select("id", { count: "exact", head: true })
+      .eq("end_user_id", viewer.id);
+    const held = count ?? 0;
 
-  if (existing) {
-    await db.from("votes").delete().eq("id", existing.id);
-  } else {
-    if (viewer.kind === "anonymous") {
-      const { count } = await db
+    if (held >= board.anonVoteLimit) {
+      const { data: owned } = await db
         .from("votes")
-        .select("id", { count: "exact", head: true })
-        .eq("end_user_id", viewer.id);
-      if ((count ?? 0) >= board.anonVoteLimit) {
+        .select("id")
+        .eq("post_id", target)
+        .eq("end_user_id", viewer.id)
+        .maybeSingle();
+
+      if (!owned) {
         return {
           ok: false,
-          error: `Anonymous visitors can vote for up to ${board.anonVoteLimit} ideas. Sign in with email to vote for more.`,
+          error: `Anonymous visitors can vote for up to ${plural(board.anonVoteLimit, "idea")}. Sign in with email to vote for more.`,
           status: 403,
         };
       }
     }
-    await db.from("votes").insert({
-      post_id: target,
-      end_user_id: viewer.id,
-      weight: viewer.weight,
-    });
   }
 
-  const { data: fresh } = await db
-    .from("posts")
-    .select("vote_count")
-    .eq("id", target)
-    .maybeSingle();
+  // Toggle and count in one transaction. Reading the count in a second
+  // request would let the visitor see a total that predates their own vote.
+  const { data: result, error } = await db
+    .rpc("toggle_vote", {
+      p_post: target,
+      p_user: viewer.id,
+      p_weight: viewer.weight,
+    })
+    .maybeSingle<{ voted: boolean; vote_count: number; weighted_score: number }>();
 
-  return { ok: true, data: { voted: !existing, votes: fresh?.vote_count ?? 0 } };
+  if (error || !result) {
+    return { ok: false, error: "Could not record that vote.", status: 500 };
+  }
+
+  return { ok: true, data: { voted: result.voted, votes: result.vote_count } };
 }
 
 /** A new post from an end user, with moderation and duplicate detection. */

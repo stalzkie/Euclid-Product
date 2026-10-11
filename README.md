@@ -153,8 +153,12 @@ domain allow-list. They run anywhere in about a second.
 
 **Integration tests** drive `/api/public/*` over real HTTP with real cookies
 against a real database. Nothing is mocked, because the bugs worth catching
-live between the route, the SQL and the identity rules. Locally they skip
-unless `supabase start` and `npm run dev` are both up; CI always runs them.
+live between the route, the SQL and the identity rules. They read `.env.local`,
+so locally they run against whatever project that points at and print the
+target host before they start; set `TEST_SUPABASE_URL` and
+`TEST_SERVICE_ROLE_KEY` to aim them elsewhere. Each file creates its own
+workspace and deletes it afterwards. If no app or database answers, the suite
+skips rather than fails.
 
 Tests were checked by mutation: the implementation was deliberately broken
 (accept any JWT algorithm, skip the signature check, remove the honeypot,

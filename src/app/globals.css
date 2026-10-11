@@ -8,8 +8,8 @@
    Amber = attention. Red = destructive. Violet = brand art only.
 --------------------------------------------------------------------------- */
 @theme {
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   /* Surfaces and ink */
   --color-canvas: #ffffff;

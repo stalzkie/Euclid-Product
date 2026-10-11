@@ -29,6 +29,12 @@ export default [
     },
   },
   {
+    // A bare object or array literal is the documented shape of these config
+    // files, so naming it first would only satisfy the linter.
+    files: ["*.config.mjs", "*.config.ts"],
+    rules: { "import/no-anonymous-default-export": "off" },
+  },
+  {
     // Scripts and tests are developer tools, not shipped code.
     files: ["scripts/**/*.mjs", "tests/**/*.ts"],
     rules: {
