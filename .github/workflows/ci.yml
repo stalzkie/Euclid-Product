@@ -67,6 +67,13 @@ jobs:
     name: Integration tests
     runs-on: ubuntu-latest
     needs: static
+    # Job-level, so the app and the tests cannot disagree about them. The
+    # tests call the job endpoints, which means they need the same CRON_SECRET
+    # the server was started with — when only the server had it, every drain
+    # came back 401.
+    env:
+      CRON_SECRET: ci-cron-secret-value-at-least-16-chars
+      EUCLID_SECRET: ci-euclid-secret-value-at-least-32-chars
     steps:
       - uses: actions/checkout@v5
 
@@ -108,10 +115,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.creds.outputs.anon }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
           NEXT_PUBLIC_APP_URL: http://localhost:3000
-          # A real value so the job endpoints are enabled and the tests can
-          # prove a wrong token is still refused.
-          CRON_SECRET: ci-cron-secret-value-at-least-16-chars
-          EUCLID_SECRET: ci-euclid-secret-value-at-least-32-chars
         run: npm run build
 
       - name: Start the app
@@ -120,8 +123,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.creds.outputs.anon }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
           NEXT_PUBLIC_APP_URL: http://localhost:3000
-          CRON_SECRET: ci-cron-secret-value-at-least-16-chars
-          EUCLID_SECRET: ci-euclid-secret-value-at-least-32-chars
         run: |
           npm run start &
           npx wait-on http://localhost:3000/widget.js --timeout 90000
