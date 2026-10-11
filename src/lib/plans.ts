@@ -19,6 +19,8 @@ export interface PlanSpec {
   chatAssistant: boolean;
   digest: boolean;
   customDomain: boolean;
+  /** Slack and Discord notifications, and issue export to GitHub or Linear. */
+  integrations: boolean;
   features: string[];
 }
 
@@ -38,6 +40,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     chatAssistant: false,
     digest: false,
     customDomain: false,
+    integrations: false,
     features: [
       "1 board",
       "Anonymous and email voting",
@@ -60,6 +63,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     chatAssistant: false,
     digest: false,
     customDomain: false,
+    integrations: true,
     features: [
       "3 boards",
       "Signed JWT identity and segments",
@@ -83,6 +87,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     chatAssistant: true,
     digest: true,
     customDomain: true,
+    integrations: true,
     features: [
       "Unlimited boards",
       "300 Build Prompts a month",

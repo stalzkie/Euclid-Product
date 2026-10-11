@@ -25,6 +25,7 @@ import type { PostDetail } from "@/server/queries";
 import { setStatus, setTheme, mergePost } from "../../feedback/actions";
 import { reply, setFounderNotes, setNotifyOnShip, summarisePost } from "./actions";
 import type { DemandSummary } from "@/lib/ai/summarise";
+import { ExportIssue } from "./export-issue";
 
 export function PostDetailView({
   post,
@@ -35,6 +36,7 @@ export function PostDetailView({
   themes,
   founderName,
   promptsLeft,
+  issueTrackers,
   codingTools,
 }: {
   post: PostDetail;
@@ -45,6 +47,7 @@ export function PostDetailView({
   themes: { id: string; name: string }[];
   founderName: string;
   promptsLeft: number;
+  issueTrackers: ("github" | "linear")[];
   codingTools: string[];
 }) {
   const router = useRouter();
@@ -483,6 +486,13 @@ export function PostDetailView({
 
       {/* Right rail */}
       <aside aria-label="Post details" className="flex min-w-0 flex-[1_1_320px] flex-col gap-4">
+        <ExportIssue
+          postId={post.id}
+          connected={issueTrackers}
+          externalUrl={post.external_url}
+          externalKind={post.external_kind}
+        />
+
         {/* Build Prompt */}
         <Card className="flex flex-col gap-3 p-[18px]">
           <SectionTitle id="bp-title">Ship this with your agent</SectionTitle>

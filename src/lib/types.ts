@@ -152,6 +152,9 @@ export interface Post {
   created_at: string;
   updated_at: string;
   shipped_at: string | null;
+  /** Set once the post has been exported to an issue tracker. */
+  external_url: string | null;
+  external_kind: "github" | "linear" | null;
 }
 
 export interface Comment {

@@ -9,6 +9,8 @@ import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
 import { scanForInjection } from "@/lib/ai/safety";
 import { DUPLICATE_SUGGESTION } from "@/lib/ai/thresholds";
 import { STATUS_LABEL, type PostStatus } from "@/lib/types";
+import { enqueueIntegrationEvent } from "@/server/integrations";
+import { appOrigin } from "@/lib/origin";
 
 /**
  * Founder-side mutations on posts. Everything runs through the caller's
@@ -26,6 +28,14 @@ export async function setStatus(input: z.infer<typeof StatusInput>) {
   const db = await supabaseServer();
 
   const shipped = status === "shipped";
+
+  // Read the old status first: a notification that says only where a post
+  // landed is much less useful than one that says where it came from.
+  const { data: before } = await db
+    .from("posts")
+    .select("id,number,title,body,category,status,vote_count")
+    .in("id", postIds);
+
   const { error } = await db
     .from("posts")
     .update({
@@ -35,6 +45,22 @@ export async function setStatus(input: z.infer<typeof StatusInput>) {
     .in("id", postIds);
 
   if (error) return { ok: false as const, error: error.message };
+
+  const origin = await appOrigin();
+  for (const post of before ?? []) {
+    if (post.status === status) continue;
+    await enqueueIntegrationEvent(ctx.board.id, "post.status_changed", {
+      number: post.number,
+      title: post.title,
+      body: post.body,
+      category: post.category,
+      status,
+      previousStatus: post.status,
+      votes: post.vote_count,
+      url: `${origin}/b/${ctx.board.public_id}`,
+      boardName: ctx.board.name,
+    });
+  }
 
   // Marking a post Shipped creates a changelog entry the founder can edit,
   // rather than publishing anything on their behalf.

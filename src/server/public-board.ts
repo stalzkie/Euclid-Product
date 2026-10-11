@@ -1,4 +1,6 @@
 import { plural } from "@/lib/format";
+import { enqueueIntegrationEvent } from "@/server/integrations";
+import { appOrigin } from "@/lib/origin";
 import { supabaseAdmin, hasServiceRole } from "@/lib/supabase/server";
 import { mergeDesign } from "@/lib/design-presets";
 import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
@@ -501,6 +503,21 @@ export async function submitPost(
       meta: `${board_row.name} · via widget · ${author?.email ?? "anonymous"}${
         held ? " · held for approval" : ""
       }`,
+    });
+  }
+
+  // A held post is not public yet, so announcing it would leak a submission
+  // the founder has not seen. Notify on approval instead.
+  if (!held && board_row) {
+    await enqueueIntegrationEvent(board.id, "post.created", {
+      number: data.number,
+      title,
+      body: body || null,
+      category: input.category ?? null,
+      status: "under_review",
+      votes: 1,
+      url: `${await appOrigin()}/b/${board.publicId}`,
+      boardName: board_row.name,
     });
   }
 

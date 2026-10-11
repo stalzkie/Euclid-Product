@@ -178,6 +178,28 @@ bypass the allow-list, reinstate the clustering drift bug) and each test that
 should have caught it did. A test that has never failed has not been shown to
 work.
 
+## Integrations
+
+Slack and Discord receive new feedback and status changes. GitHub and Linear
+receive a post when the founder exports it.
+
+Chat notifications are queued, never sent inline: a visitor's submission must
+not wait on someone's webhook, nor fail because it was revoked last week. The
+queue retries with a widening gap and switches an integration off after five
+failures, because a webhook that has failed five times is gone rather than
+slow.
+
+Webhook URLs are checked against an exact host allow-list — `hooks.slack.com`
+for Slack, Discord's own hosts for Discord. The field is typed in by a user
+and then fetched by our server, so without that check it is a request
+forwarder pointed at anything the server can reach, including link-local
+metadata addresses. Suffix matching is not enough: `evilhooks.slack.com`
+ends with the allowed host.
+
+Credentials are written with the service role and never selected into the
+browser. The dashboard is shown a redacted label (`hooks.slack.com/…aB3f`)
+and when the integration last worked.
+
 ## Background jobs
 
 Point a scheduler at these with `Authorization: Bearer $CRON_SECRET`:

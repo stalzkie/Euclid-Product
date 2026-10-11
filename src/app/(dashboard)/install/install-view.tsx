@@ -17,6 +17,7 @@ import { CopyIconButton, Segmented, Spinner, ToggleRow } from "@/components/cont
 import { IDENTITY_SNIPPETS, identityHandoff } from "@/lib/snippets";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 import { saveBoardSettings } from "../designer/actions";
+import { IntegrationsPanel, type IntegrationSummary } from "./integrations-panel";
 
 export interface BoardSettingsShape {
   id: string;
@@ -55,6 +56,8 @@ export function InstallView({
   installed,
   jwtAllowed,
   customDomainAllowed,
+  integrations,
+  integrationsAllowed,
   planName,
 }: {
   board: BoardSettingsShape;
@@ -63,6 +66,8 @@ export function InstallView({
   installed: boolean;
   jwtAllowed: boolean;
   customDomainAllowed: boolean;
+  integrations: IntegrationSummary[];
+  integrationsAllowed: boolean;
   planName: string;
 }) {
   const router = useRouter();
@@ -303,25 +308,11 @@ export function InstallView({
 
       {/* Integrations and custom domain */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card id="integrations" className="flex flex-col gap-3 p-[18px]">
-          <SectionTitle>Integrations</SectionTitle>
-          <p className="text-[12.5px] leading-[1.5] text-ink-2">
-            Post new feedback to Slack or Discord, and export a post to GitHub or Linear.
-          </p>
-          <div className="flex flex-col gap-2">
-            {["Slack", "Discord", "GitHub issues", "Linear"].map((name) => (
-              <div
-                key={name}
-                className="flex items-center gap-3 rounded-control border border-line px-3 py-[10px]"
-              >
-                <span className="flex-1 text-[13px]">{name}</span>
-                <span className="rounded-chip bg-muted px-2 py-[2px] text-[11.5px] font-medium text-ink-2">
-                  Coming soon
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <IntegrationsPanel
+          connected={integrations}
+          allowed={integrationsAllowed}
+          planName={planName}
+        />
 
         <Card className="flex flex-col gap-3 p-[18px]">
           <SectionTitle>Custom domain</SectionTitle>

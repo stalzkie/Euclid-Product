@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { hasServiceRole, supabaseAdmin } from "@/lib/supabase/server";
 import { sendQueuedEmails } from "@/server/jobs";
+import { deliverIntegrationEvents } from "@/server/integrations";
 import { authorizeCron } from "@/server/cron";
 
 /**
@@ -19,12 +20,13 @@ export async function POST(request: NextRequest) {
   }
 
   const emails = await sendQueuedEmails(50);
+  const integrations = await deliverIntegrationEvents(20);
 
   // Expired magic links are dropped rather than left to accumulate.
   const db = supabaseAdmin();
   await db.from("magic_links").delete().lt("expires_at", new Date().toISOString());
 
-  return NextResponse.json({ ok: true, emails });
+  return NextResponse.json({ ok: true, emails, integrations });
 }
 
 export async function GET(request: NextRequest) {
