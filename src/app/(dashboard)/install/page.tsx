@@ -6,7 +6,19 @@ import { mergeDesign } from "@/lib/design-presets";
 import { PLANS } from "@/lib/plans";
 import { InstallView } from "./install-view";
 import { redactWebhook, type IntegrationKind } from "@/lib/integrations";
+import { verificationRecord } from "@/lib/domains";
 import type { IntegrationSummary } from "./integrations-panel";
+
+/** Where founders point a CNAME: this deployment's own hostname. */
+function cnameTarget(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (!configured) return "your-deployment-host";
+  try {
+    return new URL(configured).hostname;
+  } catch {
+    return "your-deployment-host";
+  }
+}
 
 /** Install widget — the script tag, identity, domains and moderation. */
 export default async function InstallPage() {
@@ -63,6 +75,14 @@ export default async function InstallPage() {
         customDomainAllowed={plan.customDomain}
         integrations={integrations}
         integrationsAllowed={plan.integrations}
+        domain={{
+          domain: ctx.board.custom_domain ?? null,
+          verified: Boolean(ctx.board.custom_domain_verified_at),
+          record: ctx.board.custom_domain_token
+            ? verificationRecord(ctx.board.custom_domain_token)
+            : null,
+          target: cnameTarget(),
+        }}
         planName={plan.name}
       />
     </Shell>

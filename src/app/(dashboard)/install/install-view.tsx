@@ -18,6 +18,8 @@ import { IDENTITY_SNIPPETS, identityHandoff } from "@/lib/snippets";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 import { saveBoardSettings } from "../designer/actions";
 import { IntegrationsPanel, type IntegrationSummary } from "./integrations-panel";
+import { DomainPanel } from "./domain-panel";
+import type { DomainState } from "./domain-actions";
 
 export interface BoardSettingsShape {
   id: string;
@@ -58,6 +60,7 @@ export function InstallView({
   customDomainAllowed,
   integrations,
   integrationsAllowed,
+  domain,
   planName,
 }: {
   board: BoardSettingsShape;
@@ -68,6 +71,7 @@ export function InstallView({
   customDomainAllowed: boolean;
   integrations: IntegrationSummary[];
   integrationsAllowed: boolean;
+  domain: DomainState;
   planName: string;
 }) {
   const router = useRouter();
@@ -314,26 +318,11 @@ export function InstallView({
           planName={planName}
         />
 
-        <Card className="flex flex-col gap-3 p-[18px]">
-          <SectionTitle>Custom domain</SectionTitle>
-          <p className="text-[12.5px] leading-[1.5] text-ink-2">
-            Serve the hosted board from your own subdomain, e.g.
-            feedback.yourapp.com.
-          </p>
-          {customDomainAllowed ? (
-            <>
-              <Input placeholder="feedback.yourapp.com" />
-              <p className="text-[11.5px] text-ink-3">
-                Point a CNAME at this deployment, then save. Verification is not wired up
-                yet.
-              </p>
-            </>
-          ) : (
-            <Banner tone="state" icon="info">
-              Custom domains are on the Pro plan — you are on {planName}.
-            </Banner>
-          )}
-        </Card>
+        <DomainPanel
+          initial={domain}
+          allowed={customDomainAllowed}
+          planName={planName}
+        />
       </div>
     </>
   );

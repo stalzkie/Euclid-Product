@@ -111,6 +111,9 @@ export interface Board {
   require_approval: boolean;
   show_badge: boolean;
   custom_domain: string | null;
+  /** Null until a TXT record has proved the domain belongs to this board. */
+  custom_domain_token: string | null;
+  custom_domain_verified_at: string | null;
   design: BoardDesign;
   categories: string[];
   created_at: string;

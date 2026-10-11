@@ -200,6 +200,22 @@ Credentials are written with the service role and never selected into the
 browser. The dashboard is shown a redacted label (`hooks.slack.com/…aB3f`)
 and when the integration last worked.
 
+## Custom domains
+
+A board can be served from the founder's own subdomain. Claiming one is not
+owning one: the board is served only after a TXT record at
+`_euclid.<domain>` proves control of the domain's DNS. A CNAME alone would
+not do — anyone can point a hostname at us, and we would then answer for a
+name that is not theirs.
+
+Routing happens in middleware, before authentication: a request whose
+hostname is not this deployment's is rewritten to the hosted board and
+returns there, so no dashboard path is reachable on a customer's hostname.
+The hostname is read from `x-forwarded-host` first, because behind a proxy
+the `Host` header carries the internal name. If `NEXT_PUBLIC_APP_URL` is
+unset the rewrite is skipped entirely, so a missing variable makes custom
+domains inert rather than making the dashboard unreachable.
+
 ## Background jobs
 
 Point a scheduler at these with `Authorization: Bearer $CRON_SECRET`:

@@ -1,14 +1,6 @@
-import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import type { Metadata } from "next";
-import {
-  VISITOR_COOKIE,
-  getPublicBoard,
-  listPublicChangelog,
-  listPublicPosts,
-  resolveViewer,
-} from "@/server/public-board";
-import { PublicBoardView } from "./public-view";
+import { getPublicBoard } from "@/server/public-board";
+import { PublicBoard } from "./board";
 
 export async function generateMetadata({
   params,
@@ -39,45 +31,5 @@ export default async function PublicBoardPage({
 }) {
   const { publicId } = await params;
   const query = await searchParams;
-
-  const board = await getPublicBoard(publicId);
-  if (!board) notFound();
-
-  const store = await cookies();
-  const email = store.get(`euclid_email_${board.id}`)?.value ?? null;
-
-  const viewer = await resolveViewer({
-    board,
-    cookieKey: store.get(VISITOR_COOKIE)?.value ?? null,
-    token: null,
-    email,
-  });
-
-  const [posts, changelog] = await Promise.all([
-    listPublicPosts(board.id, viewer?.id ?? null, { limit: 100 }),
-    listPublicChangelog(board.id),
-  ]);
-
-  return (
-    <PublicBoardView
-      publicId={board.publicId}
-      appName={board.appName ?? board.workspaceName}
-      appUrl={board.appUrl}
-      design={board.design}
-      showBadge={board.showBadge}
-      categories={board.categories}
-      identityMode={board.identityMode}
-      viewerLabel={viewer?.label ?? null}
-      posts={posts}
-      changelog={changelog}
-      initialTab={
-        query.tab === "changelog"
-          ? "changelog"
-          : query.tab === "ideas"
-            ? "ideas"
-            : "roadmap"
-      }
-      justVerified={query.verified === "1"}
-    />
-  );
+  return <PublicBoard publicId={publicId} tab={query.tab} verified={query.verified} />;
 }
