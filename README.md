@@ -1,5 +1,8 @@
 # Euclid
 
+> Picking this up in a new session? Read [HANDOFF.md](HANDOFF.md) first —
+> what is built, what is left, and what state the live project is in.
+
 An embeddable feedback board for indie hackers and vibe coders. One script tag
 puts a board in any app, where users suggest and upvote features. An AI layer
 ranks and explains what they want, and **Build Prompt** turns any request into a
