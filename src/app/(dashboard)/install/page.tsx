@@ -7,6 +7,7 @@ import { PLANS } from "@/lib/plans";
 import { InstallView } from "./install-view";
 import { redactWebhook, type IntegrationKind } from "@/lib/integrations";
 import { verificationRecord } from "@/lib/domains";
+import { listApiKeys } from "./key-actions";
 import type { IntegrationSummary } from "./integrations-panel";
 
 /** Where founders point a CNAME: this deployment's own hostname. */
@@ -47,6 +48,8 @@ export default async function InstallPage() {
     };
   });
 
+  const apiKeys = await listApiKeys(ctx.board.id);
+
   const { count: posts } = await db
     .from("posts")
     .select("id", { count: "exact", head: true })
@@ -83,6 +86,7 @@ export default async function InstallPage() {
             : null,
           target: cnameTarget(),
         }}
+        apiKeys={apiKeys}
         planName={plan.name}
       />
     </Shell>

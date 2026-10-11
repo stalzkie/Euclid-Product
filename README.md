@@ -232,6 +232,38 @@ any path the model writes that the founder did not mention is replaced with
 "the relevant file". With one, paths are checked against the real tree:
 genuine ones survive, invented ones still do not.
 
+## MCP server
+
+A coding agent can reach a board directly at `POST /api/mcp`, carrying a key
+the founder issues on the Install page. Four tools: `list_requests`,
+`get_request`, `get_build_prompt`, `mark_shipped`.
+
+The key decides which board the caller is talking to, so no request
+parameter can widen the scope — there is no board id in the protocol to
+tamper with. Keys are stored as a SHA-256 hash and shown once: a leaked
+database row is not a usable credential, and nobody, us included, can read a
+key back after it is issued.
+
+`mark_shipped` creates a **draft** changelog entry. An agent does not publish
+anything and does not email voters, and the tool description says so, because
+an agent should not believe it is about to notify users.
+
+Post and comment text reaching an agent is labelled as quoted user data. It
+arrives from the public internet, and the MCP instructions say to read it as
+a description of a request rather than as instructions.
+
+```json
+{
+  "mcpServers": {
+    "euclid": {
+      "type": "http",
+      "url": "https://your-deployment/api/mcp",
+      "headers": { "Authorization": "Bearer euc_..." }
+    }
+  }
+}
+```
+
 ## Background jobs
 
 Point a scheduler at these with `Authorization: Bearer $CRON_SECRET`:

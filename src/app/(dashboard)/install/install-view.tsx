@@ -19,6 +19,8 @@ import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 import { saveBoardSettings } from "../designer/actions";
 import { IntegrationsPanel, type IntegrationSummary } from "./integrations-panel";
 import { DomainPanel } from "./domain-panel";
+import { McpPanel } from "./mcp-panel";
+import type { ApiKeySummary } from "./key-actions";
 import type { DomainState } from "./domain-actions";
 
 export interface BoardSettingsShape {
@@ -61,6 +63,7 @@ export function InstallView({
   integrations,
   integrationsAllowed,
   domain,
+  apiKeys,
   planName,
 }: {
   board: BoardSettingsShape;
@@ -72,6 +75,7 @@ export function InstallView({
   integrations: IntegrationSummary[];
   integrationsAllowed: boolean;
   domain: DomainState;
+  apiKeys: ApiKeySummary[];
   planName: string;
 }) {
   const router = useRouter();
@@ -317,6 +321,8 @@ export function InstallView({
           allowed={integrationsAllowed}
           planName={planName}
         />
+
+        <McpPanel initial={apiKeys} origin={origin} />
 
         <DomainPanel
           initial={domain}
