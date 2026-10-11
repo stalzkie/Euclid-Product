@@ -77,10 +77,13 @@ jobs:
 
       - run: npm ci
 
-      - name: Start Supabase
+      # Pinned rather than "latest": resolving "latest" costs an unauthenticated
+      # GitHub API call, which rate-limits on shared runners and fails the job
+      # before any of our code runs.
+      - name: Install the Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.120.0
 
       - name: Bring up the local stack
         run: supabase start
