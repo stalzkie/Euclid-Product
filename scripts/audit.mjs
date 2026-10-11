@@ -44,8 +44,18 @@ check("voter emails sent", `${logs.reduce((a,l)=>a+l.voters_notified,0)} notifie
 const outbox = await q("email_outbox?select=id,kind,sent_at");
 check("email outbox", `${outbox.length} queued/sent by the app`, outbox.length > 0);
 
-const recs = await q("recommendations?select=id,created_at");
-check("recommendations", `${recs.length} (seeded, not AI-generated)`, recs.length > 0);
+// The seed ships one recommendation, so counting rows proves nothing about
+// whether the digest job has ever run. Compare against the seeded row instead.
+const recs = await q("recommendations?select=id,headline,created_at&order=created_at.desc");
+const seeded = new Set(["Build data export next"]);
+const generated = recs.filter((r) => !seeded.has(r.headline));
+check(
+  "weekly digest",
+  generated.length
+    ? `${generated.length} generated, latest "${generated[0].headline}"`
+    : `${recs.length} rows, all seeded — the digest job has not run`,
+  generated.length > 0,
+);
 
 const eu = await q("end_users?select=id,kind");
 const kinds = eu.reduce((a,u)=>{a[u.kind]=(a[u.kind]||0)+1;return a;},{});
