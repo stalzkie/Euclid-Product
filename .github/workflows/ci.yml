@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # Fast feedback. Everything here runs without a database or a single API
+  # key, so a mistake is caught in under a minute rather than after a deploy.
+  static:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  # The public API against a real Postgres, PostgREST and auth stack. Nothing
+  # is mocked, because the bugs worth catching live between the route, the SQL
+  # and the identity rules.
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Start Supabase
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Bring up the local stack
+        run: supabase start
+
+      - name: Apply migrations and seed
+        run: |
+          # `supabase start` applies supabase/migrations and supabase/seed.sql
+          # automatically; this confirms the schema actually landed rather
+          # than trusting it did.
+          supabase status
+
+      - name: Collect local credentials
+        id: creds
+        run: |
+          echo "url=$(supabase status -o env | grep '^API_URL=' | cut -d= -f2- | tr -d '\"')" >> "$GITHUB_OUTPUT"
+          echo "anon=$(supabase status -o env | grep '^ANON_KEY=' | cut -d= -f2- | tr -d '\"')" >> "$GITHUB_OUTPUT"
+          echo "service=$(supabase status -o env | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | tr -d '\"')" >> "$GITHUB_OUTPUT"
+
+      - name: Build the app
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.creds.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.creds.outputs.anon }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          # A real value so the job endpoints are enabled and the tests can
+          # prove a wrong token is still refused.
+          CRON_SECRET: ci-cron-secret-value-at-least-16-chars
+          EUCLID_SECRET: ci-euclid-secret-value-at-least-32-chars
+        run: npm run build
+
+      - name: Start the app
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.creds.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.creds.outputs.anon }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          CRON_SECRET: ci-cron-secret-value-at-least-16-chars
+          EUCLID_SECRET: ci-euclid-secret-value-at-least-32-chars
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000/widget.js --timeout 90000
+
+      - name: Run integration tests
+        env:
+          TEST_APP_URL: http://localhost:3000
+          TEST_SUPABASE_URL: ${{ steps.creds.outputs.url }}
+          TEST_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
+        run: npm run test:integration
+
+      - name: Dump app logs on failure
+        if: failure()
+        run: supabase status || true
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    needs: [static, unit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          # The build must not need real credentials. Placeholders prove the
+          # app compiles without them and degrades to its setup page.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+          NEXT_PUBLIC_APP_URL: https://example.com
+        run: npm run build

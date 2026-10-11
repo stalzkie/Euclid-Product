@@ -1,0 +1,21 @@
+node_modules
+.next
+out
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+design-reference/
+
+# Test and tooling output
+coverage/
+.vitest/
+test-results/
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
+# The 9 MB bundled design source. Kept locally as the reference the UI was
+# built from; design-reference/ holds the extracted, readable version.
+Euclid — Product UI Flow.html

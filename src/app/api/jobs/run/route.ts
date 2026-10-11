@@ -1,0 +1,32 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { hasServiceRole, supabaseAdmin } from "@/lib/supabase/server";
+import { sendQueuedEmails } from "@/server/jobs";
+import { authorizeCron } from "@/server/cron";
+
+/**
+ * The queue drain. Anything slow or expensive — emails, embeddings backfill,
+ * clustering, the weekly digest — runs here rather than on a board read.
+ *
+ * Point a scheduler at this with the CRON_SECRET in an Authorization header.
+ */
+export async function POST(request: NextRequest) {
+  const auth = authorizeCron(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  if (!hasServiceRole()) {
+    return NextResponse.json({ error: "No service role configured" }, { status: 503 });
+  }
+
+  const emails = await sendQueuedEmails(50);
+
+  // Expired magic links are dropped rather than left to accumulate.
+  const db = supabaseAdmin();
+  await db.from("magic_links").delete().lt("expires_at", new Date().toISOString());
+
+  return NextResponse.json({ ok: true, emails });
+}
+
+export async function GET(request: NextRequest) {
+  return POST(request);
+}

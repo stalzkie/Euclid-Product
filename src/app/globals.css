@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Euclid Foundations v1
+   "One black button per page. Color only where it means something."
+   Surfaces stay white and stone-grey. Ink carries the primary action.
+   Pink = AI and generation. Blue = system state. Green = success.
+   Amber = attention. Red = destructive. Violet = brand art only.
+--------------------------------------------------------------------------- */
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Surfaces and ink */
+  --color-canvas: #ffffff;
+  --color-subtle: #f8f8f7;
+  --color-muted: #f1f1ef;
+  --color-hairline: #f1f1ef;
+  --color-line: #e7e7e4;
+  --color-line-strong: #d6d6d2;
+  --color-nav-active: #ededea;
+  --color-ink: #17171a;
+  --color-ink-2: #5f5f66;
+  --color-ink-3: #737379;
+  --color-ink-body: #3f3f46;
+  --color-ink-deep: #27272a;
+  --color-ink-edge: #3a3a40;
+
+  /* Pink · AI and generation */
+  --color-ai: #d1347a;
+  --color-ai-bright: #ec4899;
+  --color-ai-wash: #fdf0f6;
+  --color-ai-line: #f9c9de;
+  --color-ai-deep: #a8295f;
+  --color-ai-tint: #fde2ef;
+
+  /* Blue · state and progress */
+  --color-state: #0a72dc;
+  --color-state-bright: #1a8cff;
+  --color-state-wash: #eef6ff;
+  --color-state-ring: #d6eaff;
+  --color-state-row: #f7faff;
+  --color-state-faint: #f5faff;
+
+  /* Violet · brand art only */
+  --color-brand: #7c3aed;
+  --color-brand-wash: #f4f0ff;
+
+  /* Green · success */
+  --color-ok: #15803d;
+  --color-ok-bright: #16a34a;
+  --color-ok-wash: #ecfdf3;
+  --color-ok-line: #bbf7d0;
+
+  /* Amber · attention */
+  --color-warn: #b45309;
+  --color-warn-bright: #f59e0b;
+  --color-warn-wash: #fff7e6;
+  --color-warn-note: #fffbeb;
+
+  /* Red · destructive */
+  --color-bad: #dc2626;
+  --color-bad-wash: #fef2f2;
+  --color-bad-line: #fecaca;
+
+  /* Radius · 6 chip, 8 control, 12 card, 16 modal */
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-modal: 16px;
+
+  /* Elevation */
+  --shadow-raised: 0 1px 2px rgba(23, 23, 26, 0.05), 0 4px 12px rgba(23, 23, 26, 0.04);
+  --shadow-overlay: 0 16px 40px rgba(23, 23, 26, 0.12);
+  --shadow-seg: 0 1px 2px rgba(23, 23, 26, 0.08);
+  --shadow-float: 0 12px 32px rgba(23, 23, 26, 0.08);
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* The aurora wash — sign-up and onboarding only. */
+.aurora {
+  background:
+    radial-gradient(60% 90% at 15% 20%, #dcebff 0%, rgba(220, 235, 255, 0) 70%),
+    radial-gradient(55% 80% at 55% 40%, #eadcff 0%, rgba(234, 220, 255, 0) 70%),
+    radial-gradient(60% 90% at 90% 80%, #ffe0ec 0%, rgba(255, 224, 236, 0) 70%),
+    #fbfbfd;
+}
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Focus ring matches the Foundations "Focused" input: blue line + soft halo. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: none;
+  border-color: var(--color-state-bright);
+  box-shadow: 0 0 0 3px var(--color-state-ring);
+}
+
+::selection { background: var(--color-state-ring); }
+
+/* Scrollbars stay quiet inside panels. */
+.thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line); border-radius: 999px;
+}
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }

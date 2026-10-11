@@ -1,0 +1,20 @@
+import { supabaseServer } from "@/lib/supabase/server";
+
+/**
+ * Where a freshly signed-in founder belongs: the dashboard if they already
+ * have a workspace, onboarding if this is their first visit.
+ */
+export async function destinationFor(next?: string | null): Promise<string> {
+  const supabase = await supabaseServer();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return "/signup";
+
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", auth.user.id)
+    .limit(1)
+    .maybeSingle();
+
+  return membership ? (next || "/") : "/onboarding/app";
+}
