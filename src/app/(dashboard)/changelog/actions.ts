@@ -5,6 +5,7 @@ import { z } from "zod";
 import { uuid } from "@/lib/validation";
 import { supabaseServer, supabaseAdmin, hasServiceRole } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
+import { drainAfterResponse } from "@/server/dispatch";
 import { draftChangelog } from "@/lib/ai/clustering";
 import { AiUnavailableError, explainAiError } from "@/lib/ai/client";
 import type { ChangelogEntry } from "@/lib/types";
@@ -265,6 +266,10 @@ export async function publishEntry(entryId: string) {
       firstPost ? ` · #${firstPost.number} marked Shipped` : ""
     }`,
   });
+
+  // Start on the voter emails now rather than at the next scheduled run.
+  // Only a few go per request; the rest are the scheduler's.
+  if (notified) drainAfterResponse({ deliveries: false });
 
   revalidatePath("/changelog");
   revalidatePath("/");

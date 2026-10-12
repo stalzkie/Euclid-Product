@@ -10,6 +10,7 @@ import { scanForInjection } from "@/lib/ai/safety";
 import { DUPLICATE_SUGGESTION } from "@/lib/ai/thresholds";
 import { STATUS_LABEL, type PostStatus } from "@/lib/types";
 import { enqueueIntegrationEvent } from "@/server/integrations";
+import { drainAfterResponse } from "@/server/dispatch";
 import { appOrigin } from "@/lib/origin";
 
 /**
@@ -61,6 +62,10 @@ export async function setStatus(input: z.infer<typeof StatusInput>) {
       boardName: ctx.board.name,
     });
   }
+
+  // Chat integrations hear about the change once this action has returned,
+  // so the founder's screen does not wait on Slack.
+  drainAfterResponse({ emails: false });
 
   // Marking a post Shipped creates a changelog entry the founder can edit,
   // rather than publishing anything on their behalf.

@@ -8,6 +8,7 @@ import {
   submitPost,
 } from "@/server/public-board";
 import { cors, preflight } from "../cors";
+import { drainAfterResponse } from "@/server/dispatch";
 
 const Body = z.object({
   board: z.string().min(3),
@@ -57,6 +58,11 @@ export async function POST(request: NextRequest) {
       ? NextResponse.json(result.data)
       : NextResponse.json({ error: result.error }, { status: result.status }),
   );
+
+  // A new post queues a webhook delivery for every chat integration on the
+  // board. Sent after the response, so the person posting never waits on
+  // Slack, and the founder's notification does not wait on the scheduler.
+  if (result.ok) drainAfterResponse({ emails: false });
 
   if (viewer.newCookie) {
     response.cookies.set(VISITOR_COOKIE, viewer.newCookie, {

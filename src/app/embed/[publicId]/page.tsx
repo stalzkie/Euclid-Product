@@ -1,12 +1,11 @@
 import { notFound } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { after } from "next/server";
 import {
   VISITOR_COOKIE,
   getPublicBoard,
-  listPublicChangelog,
-  listPublicPosts,
   originAllowed,
-  resolveViewer,
+  readBoardView,
 } from "@/server/public-board";
 import { hasServiceRole, supabaseAdmin } from "@/lib/supabase/server";
 import { EmbeddedBoard } from "./embedded-board";
@@ -46,27 +45,31 @@ export default async function EmbedPage({
   const store = await cookies();
   const email = store.get(`euclid_email_${board.id}`)?.value ?? null;
 
-  const viewer = await resolveViewer({
+  const { viewer, posts, changelog } = await readBoardView({
     board,
     cookieKey: store.get(VISITOR_COOKIE)?.value ?? null,
     token: query.token ?? null,
     email,
+    limit: 60,
+    changelog: board.design.showChangelog,
   });
 
-  const [posts, changelog] = await Promise.all([
-    listPublicPosts(board.id, viewer?.id ?? null, { limit: 60 }),
-    board.design.showChangelog ? listPublicChangelog(board.id) : Promise.resolve([]),
-  ]);
-
   // Record that the widget was actually served, which is the install signal the
-  // onboarding screen polls for.
+  // onboarding screen polls for. Counted after the response: nobody waiting for
+  // a board to appear should wait on our own telemetry.
   if (hasServiceRole()) {
-    await supabaseAdmin().rpc("check_rate_limit", {
-      p_board: board.id,
-      p_bucket: "load",
-      p_actor: "widget",
-      p_max: 1_000_000,
-      p_window: "1 day",
+    after(async () => {
+      try {
+        await supabaseAdmin().rpc("check_rate_limit", {
+          p_board: board.id,
+          p_bucket: "load",
+          p_actor: "widget",
+          p_max: 1_000_000,
+          p_window: "1 day",
+        });
+      } catch {
+        // A missed install ping is not worth failing a render over.
+      }
     });
   }
 

@@ -4,6 +4,7 @@ import { hasServiceRole, supabaseAdmin } from "@/lib/supabase/server";
 import { getPublicBoard, originAllowed } from "@/server/public-board";
 import { EMAIL_COOKIE, newMagicToken } from "@/server/identity";
 import { cors, preflight } from "../cors";
+import { drainAfterResponse } from "@/server/dispatch";
 
 /**
  * Email identity for end users. Requesting a link queues an email; following
@@ -80,6 +81,11 @@ export async function POST(request: NextRequest) {
     ].join("\n"),
     kind: "magic_link",
   });
+
+  // The link is in the outbox; send it as soon as this response is out.
+  // Waiting for the scheduled drain would make signing in take as long as the
+  // gap between cron runs.
+  drainAfterResponse({ deliveries: false });
 
   return cors(NextResponse.json({ ok: true, sent: true }));
 }

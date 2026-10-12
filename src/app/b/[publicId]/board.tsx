@@ -3,9 +3,7 @@ import { cookies } from "next/headers";
 import {
   VISITOR_COOKIE,
   getPublicBoard,
-  listPublicChangelog,
-  listPublicPosts,
-  resolveViewer,
+  readBoardView,
 } from "@/server/public-board";
 import { PublicBoardView } from "./public-view";
 
@@ -28,17 +26,13 @@ export async function PublicBoard({
   const store = await cookies();
   const email = store.get(`euclid_email_${board.id}`)?.value ?? null;
 
-  const viewer = await resolveViewer({
+  const { viewer, posts, changelog } = await readBoardView({
     board,
     cookieKey: store.get(VISITOR_COOKIE)?.value ?? null,
     token: null,
     email,
+    limit: 100,
   });
-
-  const [posts, changelog] = await Promise.all([
-    listPublicPosts(board.id, viewer?.id ?? null, { limit: 100 }),
-    listPublicChangelog(board.id),
-  ]);
 
   return (
     <PublicBoardView

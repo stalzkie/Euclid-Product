@@ -2,10 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   VISITOR_COOKIE,
   getPublicBoard,
-  listPublicChangelog,
-  listPublicPosts,
   originAllowed,
-  resolveViewer,
+  readBoardView,
 } from "@/server/public-board";
 import { cors, preflight } from "../cors";
 
@@ -35,17 +33,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const viewer = await resolveViewer({
+  const { viewer, posts, changelog } = await readBoardView({
     board,
     cookieKey: request.cookies.get(VISITOR_COOKIE)?.value ?? null,
     token: url.searchParams.get("token"),
     email: null,
+    limit: 60,
+    changelog: board.design.showChangelog,
   });
-
-  const [posts, changelog] = await Promise.all([
-    listPublicPosts(board.id, viewer?.id ?? null, { limit: 60 }),
-    board.design.showChangelog ? listPublicChangelog(board.id) : Promise.resolve([]),
-  ]);
 
   const response = cors(
     NextResponse.json({

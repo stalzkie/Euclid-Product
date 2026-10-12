@@ -9,6 +9,12 @@ import { PromptWorkbench } from "../prompt-workbench";
 import type { PromptTarget } from "@/lib/types";
 
 /** 09 · Build Prompt, before anything is generated. */
+/**
+ * Generating a Build Prompt is one long model call, and the action that
+ * does it posts back to this route.
+ */
+export const maxDuration = 60;
+
 export default async function NewPromptPage({
   searchParams,
 }: {

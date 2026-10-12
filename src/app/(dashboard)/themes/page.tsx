@@ -5,6 +5,12 @@ import { hasAnthropic } from "@/lib/ai/client";
 import { ThemesView } from "./themes-view";
 
 /** 08 · Themes — posts grouped by meaning, not keywords. */
+/**
+ * Reclustering embeds every post and names the themes with a model; its
+ * action posts back to this route.
+ */
+export const maxDuration = 60;
+
 export default async function ThemesPage() {
   const ctx = await requireFounder();
   const [themes, counts] = await Promise.all([

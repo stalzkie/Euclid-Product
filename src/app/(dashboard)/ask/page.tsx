@@ -8,6 +8,12 @@ import { listThreads } from "./actions";
 import type { ChatMessage } from "@/lib/types";
 
 /** 10 · Ask Euclid. */
+/**
+ * Ask Euclid runs a tool loop against a model; its action posts back to
+ * this route.
+ */
+export const maxDuration = 60;
+
 export default async function AskPage({
   searchParams,
 }: {

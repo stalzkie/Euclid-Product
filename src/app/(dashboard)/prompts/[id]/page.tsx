@@ -9,6 +9,12 @@ import { PromptWorkbench } from "../prompt-workbench";
 import type { BuildPrompt } from "@/lib/types";
 
 /** A saved Build Prompt, reopened. */
+/**
+ * Refining a Build Prompt is a model call, and the action that does it
+ * posts back to this route.
+ */
+export const maxDuration = 60;
+
 export default async function PromptPage({
   params,
 }: {

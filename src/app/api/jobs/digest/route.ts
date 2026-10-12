@@ -6,7 +6,12 @@ import { authorizeCron } from "@/server/cron";
 /**
  * The weekly digest, for every board on a plan that includes it. Point a
  * weekly cron at this.
+ *
+ * It clusters each board and asks a model to name and rank the themes, which
+ * takes longer than a serverless function's default ceiling.
  */
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const auth = authorizeCron(request);
   if (!auth.ok) {

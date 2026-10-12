@@ -10,6 +10,9 @@ import { authorizeCron } from "@/server/cron";
  *
  * Point a scheduler at this with the CRON_SECRET in an Authorization header.
  */
+/** A backlog of email and webhooks takes longer than the default ceiling. */
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const auth = authorizeCron(request);
   if (!auth.ok) {

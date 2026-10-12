@@ -51,6 +51,43 @@ suite("public board API", () => {
       expect(body.posts.map((p) => p.title)).toContain("Export entries to CSV and Markdown");
     });
 
+    it("marks the posts this visitor voted for, and only those", async () => {
+      const mine = createVisitor();
+      const theirs = createVisitor();
+      const myPost = fixture.posts[0];
+      const theirPost = fixture.posts[1];
+
+      const read = (visitor: ReturnType<typeof createVisitor>) =>
+        visitor.call<{ posts: { id: string; voted: boolean }[] }>(
+          `/api/public/board?board=${fixture.publicId}`,
+        );
+      const vote = (visitor: ReturnType<typeof createVisitor>, postId: string) =>
+        visitor.call("/api/public/vote", {
+          method: "POST",
+          body: JSON.stringify({ board: fixture.publicId, postId }),
+        });
+
+      // A fresh visitor has voted for nothing. This also mints their cookie,
+      // so the two below are told apart by identity and not by one of them
+      // being unknown.
+      const before = await read(mine);
+      expect(before.body.posts.every((p) => !p.voted)).toBe(true);
+      await read(theirs);
+
+      await vote(mine, myPost.id);
+      await vote(theirs, theirPost.id);
+
+      // Each sees their own vote and not the other's, on the same board.
+      const after = await read(mine);
+      expect(after.body.posts.filter((p) => p.voted).map((p) => p.id)).toEqual([myPost.id]);
+
+      const other = await read(theirs);
+      expect(other.body.posts.filter((p) => p.voted).map((p) => p.id)).toEqual([theirPost.id]);
+
+      await vote(mine, myPost.id);
+      await vote(theirs, theirPost.id);
+    });
+
     it("404s for a board that does not exist", async () => {
       const { status } = await createVisitor().call("/api/public/board?board=brd_nope");
 

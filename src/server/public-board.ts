@@ -189,6 +189,87 @@ export interface Viewer {
 }
 
 /**
+ * The `external_key` the viewer's row is stored under, worked out without
+ * asking the database anything.
+ *
+ * `resolveViewer` has to write — it creates the row for a first-time visitor —
+ * so it is a round trip, and anything that waits for its result is a second
+ * one. The viewer's votes do not need the row's id, only its key, and that is
+ * knowable from the cookie or the token alone. Returns null when the viewer
+ * cannot be named yet, which only happens for someone who has never been here
+ * and therefore has no votes to find.
+ */
+export function externalKeyFor(
+  board: PublicBoard,
+  args: { cookieKey: string | null; token: string | null; email: string | null },
+): string | null {
+  if (args.token && board.identityMode === "jwt") {
+    const secret = process.env.EUCLID_SECRET;
+    if (secret) {
+      try {
+        return `jwt:${verifyJwt(args.token, secret).sub}`;
+      } catch {
+        // A token that will not verify is one `resolveViewer` will also
+        // refuse; it reports the reason, this just finds no votes.
+      }
+    }
+  }
+
+  if (args.email) return `email:${args.email.toLowerCase()}`;
+  return args.cookieKey;
+}
+
+/** Which posts on this board the viewer with that key has already voted for. */
+export async function listViewerVotes(
+  boardId: string,
+  externalKey: string | null,
+): Promise<Set<string>> {
+  if (!externalKey || !hasServiceRole()) return new Set();
+
+  const { data } = await supabaseAdmin()
+    .from("votes")
+    .select("post_id, end_users!inner(board_id, external_key)")
+    .eq("end_users.board_id", boardId)
+    .eq("end_users.external_key", externalKey);
+
+  return new Set((data ?? []).map((v) => v.post_id as string));
+}
+
+/**
+ * Everything one render of a board needs: who is looking, the posts, which of
+ * them they have voted for, and the changelog.
+ *
+ * All four are asked for at once. They used to run in three waves — resolve
+ * the viewer, then read the posts, then read the votes for those posts — and
+ * against a remote database that is most of a second each, paid by every
+ * person who opens the widget.
+ */
+export async function readBoardView(args: {
+  board: PublicBoard;
+  cookieKey: string | null;
+  token: string | null;
+  email: string | null;
+  limit: number;
+  changelog?: boolean;
+}): Promise<{ viewer: Viewer | null; posts: WidgetPost[]; changelog: WidgetChangelog[] }> {
+  const { board, cookieKey, token, email, limit } = args;
+  const wantsChangelog = args.changelog ?? true;
+
+  const [viewer, posts, voted, changelog] = await Promise.all([
+    resolveViewer({ board, cookieKey, token, email }),
+    listPublicPosts(board.id, null, { limit }),
+    listViewerVotes(board.id, externalKeyFor(board, { cookieKey, token, email })),
+    wantsChangelog ? listPublicChangelog(board.id) : Promise.resolve([]),
+  ]);
+
+  return {
+    viewer,
+    posts: voted.size ? posts.map((p) => ({ ...p, voted: voted.has(p.id) })) : posts,
+    changelog,
+  };
+}
+
+/**
  * Resolves whoever is using the board right now into an end_users row,
  * creating one if needed. The three identity levels all land here.
  */
