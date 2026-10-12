@@ -27,12 +27,23 @@ export default async function InstallPage() {
   const db = await supabaseServer();
   const plan = PLANS[ctx.workspace.plan];
 
-  // The config column holds webhook URLs and API tokens. It is read here and
-  // reduced to a redacted label; the raw value never reaches the browser.
-  const { data: rows } = await db
-    .from("integrations")
-    .select("kind,config,events,active,last_error,last_delivered_at")
-    .eq("board_id", ctx.board.id);
+  // Three independent reads, issued together: on a remote database each one
+  // waited for in turn is a visible pause before the screen appears.
+  //
+  // The integrations config column holds webhook URLs and API tokens. It is
+  // read here and reduced to a redacted label; the raw value never reaches
+  // the browser.
+  const [{ data: rows }, apiKeys, { count: posts }] = await Promise.all([
+    db
+      .from("integrations")
+      .select("kind,config,events,active,last_error,last_delivered_at")
+      .eq("board_id", ctx.board.id),
+    listApiKeys(ctx.board.id),
+    db
+      .from("posts")
+      .select("id", { count: "exact", head: true })
+      .eq("board_id", ctx.board.id),
+  ]);
 
   const integrations: IntegrationSummary[] = (rows ?? []).map((row) => {
     const config = (row.config ?? {}) as Record<string, string>;
@@ -47,13 +58,6 @@ export default async function InstallPage() {
       lastDeliveredAt: row.last_delivered_at,
     };
   });
-
-  const apiKeys = await listApiKeys(ctx.board.id);
-
-  const { count: posts } = await db
-    .from("posts")
-    .select("id", { count: "exact", head: true })
-    .eq("board_id", ctx.board.id);
 
   return (
     <Shell active="install" ctx={ctx} wide>

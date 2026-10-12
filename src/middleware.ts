@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isOwnHost } from "@/lib/domains";
+import { getJwks } from "@/lib/supabase/jwks";
 
 /**
  * Refreshes the Supabase session cookie on navigation and keeps signed-out
@@ -62,10 +63,22 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getUser();
+  // The access token is signed with an asymmetric key, so this verifies it
+  // against the project's public key set in-process. An expired token is still
+  // refreshed against the auth server on the way through, and the rotated
+  // cookie is written to the response as before; a valid one costs nothing.
+  // `getUser`, which this replaced, called the auth server on every single
+  // navigation.
+  const jwks = await getJwks();
+  const { data } = await supabase.auth.getClaims(
+    undefined,
+    // supabase-js does not export its JWK type.
+    jwks ? ({ jwks } as Parameters<typeof supabase.auth.getClaims>[1]) : undefined,
+  );
+  const signedIn = Boolean(data?.claims?.sub);
   const path = request.nextUrl.pathname;
 
-  if (!data.user && !path.startsWith("/signup") && !path.startsWith("/login")) {
+  if (!signedIn && !path.startsWith("/signup") && !path.startsWith("/login")) {
     const to = request.nextUrl.clone();
     to.pathname = "/signup";
     to.searchParams.set("next", path);

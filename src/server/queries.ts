@@ -93,26 +93,47 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
     return count ?? 0;
   };
 
-  const [thisWeekPosts, lastWeekPosts, thisWeekVotes, lastWeekVotes] = await Promise.all([
+  // Every one of these reads is independent once the post ids are known, and
+  // each is a round trip to Supabase. Issued together they cost one wait
+  // instead of six, which is most of what Home spends its time on.
+  const [
+    thisWeekPosts,
+    lastWeekPosts,
+    thisWeekVotes,
+    lastWeekVotes,
+    comments,
+    priorComments,
+    { data: recentVotes },
+    { count: shipped },
+    { data: notified },
+    { data: tts },
+  ] = await Promise.all([
     countPosts(weekAgo),
     countPosts(twoWeeksAgo, weekAgo),
     countVotes(weekAgo),
     countVotes(twoWeeksAgo, weekAgo),
-  ]);
-
-  const [comments, priorComments] = await Promise.all([
     countComments(weekAgo),
     countComments(twoWeeksAgo, weekAgo),
+    // Active voters this week, and how many of them pay.
+    ids.length
+      ? db
+          .from("votes")
+          .select("end_user_id, end_users(segments)")
+          .in("post_id", ids)
+          .gte("created_at", weekAgo)
+      : Promise.resolve({ data: [] as { end_user_id: string; end_users: unknown }[] }),
+    db
+      .from("posts")
+      .select("id", { count: "exact", head: true })
+      .eq("board_id", boardId)
+      .gte("shipped_at", monthStart),
+    db
+      .from("changelog_entries")
+      .select("voters_notified")
+      .eq("board_id", boardId)
+      .gte("published_at", monthStart),
+    db.rpc("board_time_to_ship", { p_board: boardId }),
   ]);
-
-  // Active voters this week, and how many of them pay.
-  const { data: recentVotes } = ids.length
-    ? await db
-        .from("votes")
-        .select("end_user_id, end_users(segments)")
-        .in("post_id", ids)
-        .gte("created_at", weekAgo)
-    : { data: [] as never[] };
 
   const voters = new Set<string>();
   const paying = new Set<string>();
@@ -121,20 +142,6 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
     const plan = one<{ segments?: Record<string, string> }>(v.end_users)?.segments?.plan;
     if (plan && plan !== "free") paying.add(v.end_user_id);
   }
-
-  const { count: shipped } = await db
-    .from("posts")
-    .select("id", { count: "exact", head: true })
-    .eq("board_id", boardId)
-    .gte("shipped_at", monthStart);
-
-  const { data: notified } = await db
-    .from("changelog_entries")
-    .select("voters_notified")
-    .eq("board_id", boardId)
-    .gte("published_at", monthStart);
-
-  const { data: tts } = await db.rpc("board_time_to_ship", { p_board: boardId });
 
   return {
     newPosts: thisWeekPosts,
