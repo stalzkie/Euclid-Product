@@ -6,7 +6,7 @@ import { SignupForm } from "./signup-form";
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; mode?: string }>;
+  searchParams: Promise<{ next?: string; mode?: string; error?: string }>;
 }) {
   const params = await searchParams;
 
@@ -16,5 +16,14 @@ export default async function SignupPage({
   const { data } = await supabase.auth.getUser();
   if (data.user) redirect(params.next ?? "/");
 
-  return <SignupForm mode={params.mode === "signin" ? "signin" : "signup"} />;
+  return (
+    <SignupForm
+      mode={params.mode === "signin" ? "signin" : "signup"}
+      // A sign-in that failed somewhere else — the OAuth provider, or the code
+      // exchange — arrives here with its reason in the query. Dropping it is
+      // how a failed Google sign-in came to look like a page that simply
+      // reloaded itself.
+      initialError={params.error ?? null}
+    />
+  );
 }

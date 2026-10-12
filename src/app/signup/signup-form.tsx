@@ -5,16 +5,24 @@ import { useState, type ReactNode } from "react";
 import { Icon, Logo } from "@/components/icons";
 import { Banner, Button, Input, cx } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import { FadeRise, Stagger } from "@/components/motion";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 /**
  * 01 · Sign up. The aurora wash and the floating proof cards appear only here
  * and in onboarding; the product itself stays white and stone-grey.
  */
-export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
+export function SignupForm({
+  mode,
+  initialError = null,
+}: {
+  mode: "signup" | "signin";
+  /** A failure from a previous attempt, passed through the query. */
+  initialError?: string | null;
+}) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState<"email" | "google" | "github" | null>(null);
 
   const signInWithEmail = async () => {
@@ -52,7 +60,16 @@ export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
       {/* Proof cards: the core loop, floating on the wash. */}
       <ProofCards />
 
-      <section
+      {/*
+        The one screen where the entrance is the point: this is the first thing
+        a visitor sees, so it animates on mount rather than waiting for
+        hydration the way in-app content does. 8px rather than 4px — the card
+        is carrying the whole page.
+      */}
+      <FadeRise
+        as="section"
+        mountAnimation
+        distance="md"
         aria-labelledby="signup-title"
         className="relative z-10 flex w-full max-w-[420px] flex-col gap-4 rounded-modal border border-line bg-canvas p-8 shadow-float"
       >
@@ -68,11 +85,15 @@ export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
         </div>
 
         {sent ? (
-          <Banner tone="ok" icon="mail">
-            Check {email} for a sign-in link. It expires in an hour.
-          </Banner>
+          // Swapping the whole block for a confirmation is a change of state,
+          // not a list arriving, so it fades in on its own.
+          <FadeRise mountAnimation>
+            <Banner tone="ok" icon="mail">
+              Check {email} for a sign-in link. It expires in an hour.
+            </Banner>
+          </FadeRise>
         ) : (
-          <>
+          <Stagger className="flex flex-col gap-4">
             <button
               type="button"
               onClick={() => signInWithOAuth("google")}
@@ -120,13 +141,15 @@ export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
               {busy === "email" ? <Spinner /> : null}
               Continue with email
             </Button>
-          </>
+          </Stagger>
         )}
 
         {error && (
-          <Banner tone="bad" icon="warn">
-            {error}
-          </Banner>
+          <FadeRise mountAnimation aria-live="polite">
+            <Banner tone="bad" icon="warn">
+              {error}
+            </Banner>
+          </FadeRise>
         )}
 
         <p className="text-[12.5px] text-ink-2">
@@ -152,7 +175,7 @@ export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
         <p className="text-[11.5px] leading-[1.45] text-ink-3">
           By continuing you agree to the Terms and Privacy Policy.
         </p>
-      </section>
+      </FadeRise>
     </main>
   );
 }
