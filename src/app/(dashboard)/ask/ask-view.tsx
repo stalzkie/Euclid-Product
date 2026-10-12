@@ -65,6 +65,11 @@ export function AskEuclidView({
   const [openSteps, setOpenSteps] = useState<Set<string>>(new Set());
   const [pending, start] = useTransition();
   const endRef = useRef<HTMLDivElement>(null);
+  // Ids for the optimistic message shown while the answer is being worked
+  // out. A counter rather than a clock: two questions sent in the same
+  // millisecond would collide, and reading the clock mid-render is not
+  // something a component may do.
+  const optimisticId = useRef(0);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -76,7 +81,7 @@ export function AskEuclidView({
 
     // Show the question immediately; the answer arrives when the tools finish.
     const optimistic: ChatMessage = {
-      id: `pending-${Date.now()}`,
+      id: `pending-${(optimisticId.current += 1)}`,
       thread_id: thread ?? "",
       role: "user",
       content: text,

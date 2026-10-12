@@ -86,7 +86,7 @@ export function BoardWidget({
   const [tab, setTab] = useState<WidgetTab>("ideas");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [similar, setSimilar] = useState<WidgetPost[]>([]);
+  const [matches, setMatches] = useState<WidgetPost[]>([]);
   const [votes, setVotes] = useState<Record<string, boolean>>(
     Object.fromEntries(posts.map((p) => [p.id, p.voted])),
   );
@@ -105,20 +105,20 @@ export function BoardWidget({
   useEffect(() => {
     if (preview || !onSearchSimilar) return;
     const query = title.trim();
-    if (query.length <= 3) {
-      setSimilar([]);
-      return;
-    }
+    // Too short to search on. Nothing is cleared here: what the widget shows
+    // is derived from the title, so emptying the box hides the suggestions
+    // without a second render.
+    if (query.length <= 3) return;
 
     let live = true;
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       void onSearchSimilar(query, "fast").then((found) => {
         // Never let the fast pass overwrite a semantic result already shown.
-        if (live && found.length) setSimilar((prev) => (prev.length ? prev : found));
+        if (live && found.length) setMatches((prev) => (prev.length ? prev : found));
       });
       void onSearchSimilar(query, "semantic").then((found) => {
-        if (live) setSimilar(found);
+        if (live) setMatches(found);
       });
     }, 300);
 
@@ -127,6 +127,9 @@ export function BoardWidget({
       if (debounce.current) clearTimeout(debounce.current);
     };
   }, [title, preview, onSearchSimilar]);
+
+  // Suggestions belong to the title that produced them.
+  const similar = title.trim().length > 3 ? matches : [];
 
   const roadmap = useMemo(
     () => ({
@@ -163,7 +166,7 @@ export function BoardWidget({
       setPosted(res.number);
       setTitle("");
       setBody("");
-      setSimilar([]);
+      setMatches([]);
       setTimeout(() => setPosted(null), 6000);
     } else {
       setError(res.error);

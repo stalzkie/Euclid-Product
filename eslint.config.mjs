@@ -1,10 +1,10 @@
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { FlatCompat } from "@eslint/eslintrc";
+import coreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-const compat = new FlatCompat({
-  baseDirectory: dirname(fileURLToPath(import.meta.url)),
-});
+// eslint-config-next 16 ships flat configs directly. It used to need the
+// `FlatCompat` shim around `extends`, which that version's config object
+// no longer survives — it contains a circular reference that the legacy
+// validator tries to JSON.stringify.
 
 export default [
   {
@@ -17,7 +17,8 @@ export default [
       "public/widget.js", // Hand-written ES5 for maximum browser reach.
     ],
   },
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  ...coreWebVitals,
+  ...nextTypescript,
   {
     rules: {
       // Unused values are usually a mistake, but a leading underscore is the

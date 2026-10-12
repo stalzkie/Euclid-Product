@@ -14,25 +14,29 @@ export function HashCallback({ next }: { next: string | null }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    const params = new URLSearchParams(hash);
-
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-    const hashError = params.get("error_description") ?? params.get("error");
-
-    if (hashError) {
-      setError(hashError);
-      return;
-    }
-    if (!accessToken || !refreshToken) {
-      setError("That sign-in link is missing its token. Request a new one.");
-      return;
-    }
-
+    // The whole exchange runs inside this, reading the fragment included.
+    // Signing in is one process with one failure path, so its errors all
+    // reach state the same way — from a callback, never synchronously out of
+    // the effect body.
     void (async () => {
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      const params = new URLSearchParams(hash);
+
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const hashError = params.get("error_description") ?? params.get("error");
+
+      if (hashError) {
+        setError(hashError);
+        return;
+      }
+      if (!accessToken || !refreshToken) {
+        setError("That sign-in link is missing its token. Request a new one.");
+        return;
+      }
+
       const supabase = supabaseBrowser();
       const { error: setError_ } = await supabase.auth.setSession({
         access_token: accessToken,

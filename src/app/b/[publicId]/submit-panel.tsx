@@ -34,7 +34,7 @@ export function SubmitPanel({
   const [body, setBody] = useState("");
   const [category, setCategory] = useState(categories[0] ?? "");
   const [honeypot, setHoneypot] = useState("");
-  const [similar, setSimilar] = useState<WidgetPost[]>([]);
+  const [matches, setMatches] = useState<WidgetPost[]>([]);
   const [email, setEmail] = useState("");
   const [emailSent, setEmailSent] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -47,12 +47,17 @@ export function SubmitPanel({
     if (open) titleRef.current?.focus();
   }, [open]);
 
+  // Suggestions belong to the title that produced them. Deriving this rather
+  // than storing it means clearing the box hides them immediately.
+  const similar = title.trim().length > 3 ? matches : [];
+
   // Similar posts as you type. The submitter is nudged to vote instead.
   useEffect(() => {
-    if (title.trim().length <= 3) {
-      setSimilar([]);
-      return;
-    }
+    // Too short to search on. Nothing is cleared here: what the panel shows is
+    // derived from the title below, so a cleared box hides the suggestions
+    // without a second render.
+    if (title.trim().length <= 3) return;
+
     let live = true;
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
@@ -69,10 +74,10 @@ export function SubmitPanel({
       };
       // Keyword first so something appears immediately, semantic after.
       void load("fast").then((found) => {
-        if (live && found.length) setSimilar((prev) => (prev.length ? prev : found));
+        if (live && found.length) setMatches((prev) => (prev.length ? prev : found));
       });
       void load("semantic").then((found) => {
-        if (live) setSimilar(found);
+        if (live) setMatches(found);
       });
     }, 300);
 
@@ -88,7 +93,7 @@ export function SubmitPanel({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ board: publicId, postId: post.id }),
     });
-    setSimilar((prev) =>
+    setMatches((prev) =>
       prev.map((p) =>
         p.id === post.id
           ? { ...p, voted: !p.voted, votes: p.votes + (p.voted ? -1 : 1) }
@@ -134,7 +139,7 @@ export function SubmitPanel({
     }
     setTitle("");
     setBody("");
-    setSimilar([]);
+    setMatches([]);
   };
 
   const sendLink = async () => {

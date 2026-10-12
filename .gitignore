@@ -19,3 +19,10 @@ supabase/.temp/
 # The 9 MB bundled design source. Kept locally as the reference the UI was
 # built from; design-reference/ holds the extracted, readable version.
 Euclid — Product UI Flow.html
+
+# Added by `vercel link`. Narrowed from its `.env*`, which also hid the
+# committed .env.example.
+.vercel
+.env.local
+.env*.local
+.env*

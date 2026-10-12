@@ -16,7 +16,7 @@ npm run test:integration  # 56 tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at the last commit: **382 unit tests**, **57 integration tests**, lint
+Counts at the last commit: **380 unit tests**, **57 integration tests**, lint
 clean with zero warnings.
 
 ### Requirements against the PRD table

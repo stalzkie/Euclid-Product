@@ -82,17 +82,21 @@ not fail loudly — custom domains simply stop resolving to their boards.
 $CRON_SECRET` to a cron request on its own once that variable is set, which is
 exactly what `authorizeCron` checks — so there is nothing else to wire.
 
-- `/api/jobs/run` every 10 minutes — drains the email outbox and the webhook
+- `/api/jobs/run` daily at 03:00 UTC — drains the email outbox and the webhook
   delivery queue, and clears expired magic links.
 - `/api/jobs/digest` Mondays at 09:00 UTC — the weekly recommendation, for
   every board on a plan that includes it.
 
-**On the Hobby plan, crons run at most once a day and only two may exist.** The
-two above fit the count but not the frequency; Vercel will coerce them. That is
-survivable because the request that queues work also drains a little of it once
-its response has gone out (`src/server/dispatch.ts`), so magic links and Slack
-messages do not wait for the cron. The cron is the retry path, not the delivery
-path. On Pro the schedules above run as written.
+**Hobby allows a cron to run at most once a day, and it fails the deploy
+outright if one would run more often** — it does not quietly coerce the
+schedule. That is why `/api/jobs/run` is daily here and not every ten minutes.
+
+Daily is survivable only because the request that queues work also drains a
+little of it once its response has gone out (`src/server/dispatch.ts`): magic
+links and Slack messages go immediately, and the cron is the retry path rather
+than the delivery path. **On Pro, change `/api/jobs/run` to `*/10 * * * *`** —
+that is what it should be, and a failed webhook would then be retried in
+minutes instead of a day.
 
 On another host, point any scheduler at the same two URLs with that header:
 

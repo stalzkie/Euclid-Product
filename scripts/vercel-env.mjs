@@ -29,8 +29,18 @@ if (appUrlFlag > -1 && !appUrl?.startsWith("https://")) {
   process.exit(1);
 }
 
-/** Variables that must never be pushed: they describe this machine. */
-const SKIP = new Set(["TEST_APP_URL", "TEST_SUPABASE_URL", "TEST_SERVICE_ROLE_KEY"]);
+/**
+ * Variables that must never be pushed: they describe this machine.
+ * `VERCEL_OIDC_TOKEN` is written into `.env.local` by `vercel link` itself,
+ * is short-lived, and is issued per environment — pushing it would pin a dead
+ * token into the project.
+ */
+const SKIP = new Set([
+  "TEST_APP_URL",
+  "TEST_SUPABASE_URL",
+  "TEST_SERVICE_ROLE_KEY",
+  "VERCEL_OIDC_TOKEN",
+]);
 
 /** Still a placeholder in `.env.example`, so not worth pushing. */
 const isPlaceholder = (value) =>
@@ -110,10 +120,15 @@ for (const [name, original] of vars) {
     continue;
   }
 
-  // Replace rather than add: `env add` fails on a name that already exists,
-  // and a half-updated environment is worse than a noisy one.
-  vercel(["env", "rm", name, target, "--yes"]);
-  const res = vercel(["env", "add", name, target], `${value}\n`);
+  // `NEXT_PUBLIC_*` values are compiled into the browser bundle, so they are
+  // not secrets and must not be stored as ones — the CLI otherwise stops on a
+  // value that looks like a credential, which the Supabase anon key does.
+  // Everything else is a secret and is stored as one.
+  const kind = name.startsWith("NEXT_PUBLIC_") ? "--no-sensitive" : "--sensitive";
+
+  // `--force` overwrites in place: removing first would leave the environment
+  // half-populated if the add then failed.
+  const res = vercel(["env", "add", name, target, kind, "--force"], `${value}\n`);
 
   if (res.status === 0) {
     console.log(`     ok  ${name}`);
