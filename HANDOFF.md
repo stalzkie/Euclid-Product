@@ -48,11 +48,22 @@ Every requirement in the PRD is now built.
 
 ## What is left
 
-1. **Deployment.** Nothing is deployed; the app runs only on localhost, and
-   `euclidhq.com` DNS still carries only the Resend records. The code side is
-   ready — `vercel.json` declares both cron schedules, the job and AI routes
-   carry their own `maxDuration`, and **DEPLOY.md** lists every variable and
-   DNS record. What is left needs an account and secrets, so it needs you.
+1. **One DNS record.** The app is deployed and live on Vercel as
+   `stalwrites/euclid-product`, with functions pinned to `syd1` — the same
+   AWS region as the database. It answers on `euclid-product.vercel.app` for
+   the public board and the widget, but **the dashboard only answers on
+   `app.euclidhq.com`**, because middleware rewrites any other host to a
+   board's custom-domain route. That hostname needs one CNAME at Hostinger:
+
+   ```
+   app  CNAME  3687d9a0e68ed4d8.vercel-dns-017.com.
+   ```
+
+   Note this is a *per-domain* target, not the generic `cname.vercel-dns.com`.
+   `npx vercel domains verify app.euclidhq.com` re-prints it.
+
+   The `euclid` project, and `euclidhq.com` itself, serve the marketing site —
+   a separate project. Do not deploy this app over it.
 
 2. **No payment processor.** Plans and limits are enforced in code
    (`src/lib/plans.ts`), but there is no Stripe/Lemon Squeezy integration —
@@ -73,15 +84,16 @@ Every requirement in the PRD is now built.
 
 ## Speed
 
-A dashboard navigation was 5–10 seconds and is now 0.8–1.9 s; the widget's
-own read was 2.8 s and is now 0.85 s. Measured in production against the live
-database, warm. What is left is close to the floor for this setup: each screen
-is one context query plus its own data, and a round trip to Supabase from this
-machine is 400–650 ms.
+A dashboard navigation was 5–10 seconds and is now 0.8–1.9 s locally; the
+widget's own read was 2.8 s and is now 0.85 s. Those are measured against the
+live database from this machine, where one round trip to Supabase costs
+400–650 ms.
 
-**The next real win is deploying in the Supabase project's region.** Those
-same round trips become tens of milliseconds, which would put every screen
-under 200 ms without another line of code.
+**Deployed into the database's own region, the public paths are ~0.45 s from
+here, of which ~0.22 s is this machine's network to Sydney** — a static file
+on the same deployment takes that long. So the app's own work is around
+0.23 s, down from 0.83 s, and a visitor near the region pays less still. The
+dashboard should follow once the DNS record above is in place.
 
 Things that were tried and rejected: caching the public board row
 (`unstable_cache` + tag invalidation). It halved the widget read again, to

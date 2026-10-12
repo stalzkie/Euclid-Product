@@ -36,14 +36,15 @@ dashboard step is needed. Routing Middleware still runs at the edge near the
 visitor — which is fine, because it verifies the session against the
 project's public key set in process rather than calling the auth server.
 
-## 3. Create the project
+## 3. The project
 
-```
-npx vercel link          # or import the GitHub repo at vercel.com/new
-npx vercel --prod
-```
+Live as **`stalwrites/euclid-product`**. Deploy with `npx vercel deploy --prod`.
 
-The repo is `stalzkie/Euclid-Product`, and `main` is the production branch.
+`stalwrites/euclid` is a different thing — the marketing site on
+`euclidhq.com`. Do not link this repo to it.
+
+Next.js must stay current: Vercel refuses to build a release with a published
+advisory against it, and that is how this app ended up on 16.x.
 
 ## 4. Environment variables
 
@@ -108,7 +109,11 @@ curl -X POST https://<host>/api/jobs/run -H "Authorization: Bearer $CRON_SECRET"
 
 `euclidhq.com` currently carries only the Resend records. Add:
 
-- the apex or `app.` record Vercel gives you for the deployment itself, and
+- `app  CNAME  3687d9a0e68ed4d8.vercel-dns-017.com.` — the per-domain target
+  for `app.euclidhq.com`, not the generic `cname.vercel-dns.com`. Re-print it
+  with `npx vercel domains verify app.euclidhq.com`. **Until this exists the
+  dashboard is unreachable**, because middleware rewrites any host that is not
+  `NEXT_PUBLIC_APP_URL` to a board's custom-domain route.
 - nothing else — founders' custom domains CNAME to *your* hostname, and the
   install screen shows each founder the exact record to add.
 
