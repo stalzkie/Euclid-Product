@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { initialsOf, needsRoll } from "@/server/context";
+import { byCreation, initialsOf, needsRoll } from "@/server/context";
 import { getJwks, resetJwksCache } from "@/lib/supabase/jwks";
 
 /**
@@ -45,6 +45,44 @@ describe("needsRoll", () => {
     // be rolled over again on every navigation for the rest of the month.
     expect(needsRoll("2026-01-01", new Date(2026, 0, 5))).toBe(false);
     expect(needsRoll("2025-12-01", new Date(2026, 0, 5))).toBe(true);
+  });
+});
+
+describe("byCreation", () => {
+  const sortNames = (rows: { created_at: string; id: string; name: string }[]) =>
+    rows.slice().sort(byCreation).map((r) => r.name);
+
+  it("puts the oldest board first", () => {
+    expect(
+      sortNames([
+        { created_at: "2026-02-01", id: "b", name: "second" },
+        { created_at: "2026-01-01", id: "a", name: "first" },
+      ]),
+    ).toEqual(["first", "second"]);
+  });
+
+  it("breaks a tie by id, so the order never changes between loads", () => {
+    // The boards a workspace starts with are created in one statement and
+    // share a timestamp to the microsecond.
+    const same = "2026-10-11T09:31:54.890426+00:00";
+    const rows = [
+      { created_at: same, id: "ccc", name: "Feature requests" },
+      { created_at: same, id: "aaa", name: "Integrations" },
+      { created_at: same, id: "bbb", name: "Bug reports" },
+    ];
+    expect(sortNames(rows)).toEqual(["Integrations", "Bug reports", "Feature requests"]);
+    // Whatever order they arrive in.
+    expect(sortNames(rows.slice().reverse())).toEqual(sortNames(rows));
+  });
+
+  it("is a total order, so sorting twice changes nothing", () => {
+    const rows = [
+      { created_at: "2026-01-01", id: "b", name: "x" },
+      { created_at: "2026-01-01", id: "a", name: "y" },
+      { created_at: "2025-01-01", id: "z", name: "z" },
+    ];
+    const once = rows.slice().sort(byCreation);
+    expect(once.slice().sort(byCreation)).toEqual(once);
   });
 });
 

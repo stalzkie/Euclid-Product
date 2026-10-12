@@ -1,7 +1,7 @@
 import { Shell } from "@/components/shell";
 import { requireFounder } from "@/server/context";
 import { supabaseServer } from "@/lib/supabase/server";
-import { listChangelog, listPosts } from "@/server/queries";
+import { listChangelog, listPostSummaries } from "@/server/queries";
 import { hasAnthropic } from "@/lib/ai/client";
 import { ChangelogView } from "./changelog-view";
 import type { ChangelogEntry } from "@/lib/types";
@@ -16,7 +16,13 @@ export default async function ChangelogPage({
   const ctx = await requireFounder();
   const db = await supabaseServer();
 
-  const entries = await listChangelog(ctx.board.id);
+  // Neither of these depends on the other.
+  const [entries, candidates] = await Promise.all([
+    listChangelog(ctx.board.id),
+    // Candidates to link: anything in progress or recently planned.
+    listPostSummaries(ctx.board.id, 20),
+  ]);
+
   const selected =
     entries.find((e) => e.id === params.entry) ??
     entries.find((e) => !e.published) ??
@@ -44,9 +50,6 @@ export default async function ChangelogPage({
         Boolean(p),
       );
   }
-
-  // Candidates to link: anything in progress or recently planned.
-  const candidates = await listPosts(ctx.board.id, { limit: 20 });
 
   return (
     <Shell active="changelog" ctx={ctx} wide>

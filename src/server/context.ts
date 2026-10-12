@@ -96,7 +96,6 @@ export const getFounderContext = cache(
       .is("workspaces.boards.posts.merged_into", null)
       .eq("workspaces.boards.posts.approved", true)
       .order("created_at", { ascending: true })
-      .order("created_at", { referencedTable: "workspaces.boards", ascending: true })
       .limit(1);
 
     const membership = (memberships?.[0] ?? null) as MembershipRow | null;
@@ -106,7 +105,14 @@ export const getFounderContext = cache(
     const boardRows = (workspace.boards ?? []) as BoardRow[];
     if (!boardRows.length) redirect("/onboarding/app");
 
-    const boards = boardRows.map(stripCount);
+    // Sorted here rather than in the query: PostgREST will not order a
+    // relation embedded two levels down, and `created_at` ties anyway —
+    // a workspace's first boards are all created in one statement and share a
+    // timestamp to the microsecond. Without the id to break the tie, the
+    // sidebar reordered itself between loads and "the first board" — which is
+    // the one a founder with no cookie lands on — was whichever Postgres
+    // happened to return first.
+    const boards = boardRows.slice().sort(byCreation).map(stripCount);
     const counts = Object.fromEntries(
       boardRows.map((b) => [b.id, b.posts?.[0]?.count ?? 0]),
     ) as Record<string, number>;
@@ -158,6 +164,23 @@ export function needsRoll(periodStart: string | null | undefined, now = new Date
   if (!periodStart) return true;
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
   return periodStart.slice(0, 10) < monthStart;
+}
+
+/**
+ * Oldest board first, ties broken by id.
+ *
+ * PostgREST will not order a relation embedded two levels down, so this
+ * happens here — and it has to happen somewhere, because `created_at` ties:
+ * a workspace's first boards are created in one statement and share a
+ * timestamp to the microsecond. Without the tiebreak the sidebar reordered
+ * itself between loads, and "the first board" — the one a founder with no
+ * cookie lands on — was whichever Postgres happened to return first.
+ */
+export function byCreation(
+  a: { created_at: string; id: string },
+  b: { created_at: string; id: string },
+): number {
+  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
 /** A board row without the aggregate that was embedded into it. */

@@ -24,22 +24,29 @@ export default async function InsightsPage({
 
   const days = params.range === "7" ? 7 : params.range === "90" ? 90 : 30;
 
-  const [series, kpis, statusCounts, plans, { data: prompts }, { data: shippedPrompts }] =
-    await Promise.all([
-      getDailySeries(ctx.board.id, days),
-      getWeekKpis(ctx.board.id),
-      getStatusCounts(ctx.board.id),
-      getVotesByPlan(ctx.board.id),
-      db
-        .from("build_prompts")
-        .select("target,copied")
-        .eq("workspace_id", ctx.workspace.id),
-      db
-        .from("build_prompts")
-        .select("target, posts!inner(status)")
-        .eq("workspace_id", ctx.workspace.id)
-        .eq("posts.status", "shipped"),
-    ]);
+  const [
+    series,
+    kpis,
+    statusCounts,
+    plans,
+    { data: prompts },
+    { data: shippedPrompts },
+    { data: sources },
+  ] = await Promise.all([
+    getDailySeries(ctx.board.id, days),
+    getWeekKpis(ctx.board.id),
+    getStatusCounts(ctx.board.id),
+    getVotesByPlan(ctx.board.id),
+    db.from("build_prompts").select("target,copied").eq("workspace_id", ctx.workspace.id),
+    db
+      .from("build_prompts")
+      .select("target, posts!inner(status)")
+      .eq("workspace_id", ctx.workspace.id)
+      .eq("posts.status", "shipped"),
+    // Where posts come from. The widget stamps nothing today, so this reads
+    // the author identity kind as a proxy and labels it honestly.
+    db.from("posts").select("author_id, end_users(kind)").eq("board_id", ctx.board.id),
+  ]);
 
   // Period totals for the KPI row, from the series rather than the week view.
   const totals = series.reduce(
@@ -62,13 +69,6 @@ export default async function InsightsPage({
     const row = byTool.get(p.target as PromptTarget);
     if (row) row.shipped += 1;
   }
-
-  // Where posts come from. The widget stamps nothing today, so this reads the
-  // author identity kind as a proxy and labels it honestly.
-  const { data: sources } = await db
-    .from("posts")
-    .select("author_id, end_users(kind)")
-    .eq("board_id", ctx.board.id);
 
   const sourceCounts = { widget: 0, hosted: 0, founder: 0 };
   for (const row of sources ?? []) {

@@ -93,7 +93,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
       "300 Build Prompts a month",
       "Ask Euclid chat and weekly digest",
       "Custom domain",
-      "GitHub repo context (soon)",
+      "Read-only GitHub repo context",
     ],
   },
 };

@@ -15,6 +15,23 @@ import type {
  */
 
 /**
+ * Every column of `posts` and `themes` the dashboard actually reads — which is
+ * all of them except the 1536-dimension vectors.
+ *
+ * `select("*")` shipped `posts.embedding` and `themes.centroid` over the wire
+ * on every list: 19 KB a row, for a number no screen displays. A 200-post
+ * inbox was 3.8 MB of vectors and nothing else. They are listed out rather
+ * than excluded because PostgREST has no "all but this column", and because a
+ * new column should have to be asked for.
+ */
+const POST_COLUMNS =
+  "id,board_id,number,title,body,category,status,theme_id,author_id,merged_into," +
+  "vote_count,weighted_score,comment_count,approved,spam_score,injection_flagged," +
+  "founder_notes,pinned,created_at,updated_at,shipped_at,external_url,external_kind";
+
+const THEME_COLUMNS = "id,board_id,name,summary,created_at,updated_at";
+
+/**
  * Supabase types an embedded relation as an array even when the foreign key
  * resolves to exactly one row. This narrows it back without an `any`.
  */
@@ -176,7 +193,7 @@ export async function listPosts(
   const db = await supabaseServer();
   let q = db
     .from("posts")
-    .select("*, themes(name), end_users(email)")
+    .select(`${POST_COLUMNS}, themes(name), end_users(email)`)
     .eq("board_id", boardId)
     .is("merged_into", null)
     .eq("approved", true);
@@ -193,7 +210,10 @@ export async function listPosts(
         : q.order("vote_count", { ascending: false });
 
   const { data } = await q.limit(opts.limit ?? 50);
-  const rows = (data ?? []) as (Post & {
+  // Supabase types an embedded relation as an array whether or not the key
+  // resolves to one row, so the shape is asserted here as it is everywhere
+  // else in this file.
+  const rows = (data ?? []) as unknown as (Post & {
     themes: { name: string } | null;
     end_users: { email: string | null } | null;
   })[];
@@ -260,6 +280,27 @@ async function enrich(
   });
 }
 
+/**
+ * Just enough of each post to offer it in a list: no vote history, and so no
+ * second query for one. `listPosts` exists for screens that show a sparkline.
+ */
+export async function listPostSummaries(
+  boardId: string,
+  limit = 20,
+): Promise<Pick<Post, "id" | "number" | "title" | "status" | "vote_count">[]> {
+  const db = await supabaseServer();
+  const { data } = await db
+    .from("posts")
+    .select("id,number,title,status,vote_count")
+    .eq("board_id", boardId)
+    .is("merged_into", null)
+    .eq("approved", true)
+    .order("vote_count", { ascending: false })
+    .limit(limit);
+
+  return data ?? [];
+}
+
 export async function getStatusCounts(
   boardId: string,
 ): Promise<Record<"all" | PostStatus, number>> {
@@ -307,14 +348,17 @@ export async function getPost(boardId: string, number: number): Promise<PostDeta
   const db = await supabaseServer();
   const { data } = await db
     .from("posts")
-    .select("*, themes(name), end_users(email)")
+    .select(`${POST_COLUMNS}, themes(name), end_users(email)`)
     .eq("board_id", boardId)
     .eq("number", number)
     .maybeSingle();
 
   if (!data) return null;
   const [row] = await enrich(boardId, [
-    data as Post & { themes: { name: string } | null; end_users: { email: string | null } | null },
+    data as unknown as Post & {
+      themes: { name: string } | null;
+      end_users: { email: string | null } | null;
+    },
   ]);
 
   const [{ data: comments }, { data: merged }, { data: dupes }, { data: prompts }, { data: voters }] =
@@ -373,10 +417,15 @@ export interface ThemeRow extends Theme {
 
 export async function listThemes(boardId: string): Promise<ThemeRow[]> {
   const db = await supabaseServer();
-  const { data: themes } = await db.from("themes").select("*").eq("board_id", boardId);
-  if (!themes?.length) return [];
 
-  const posts = await listPosts(boardId, { limit: 500 });
+  // The posts do not depend on the themes — each post carries its theme id —
+  // so both are asked for at once. Waiting for the theme list first put a
+  // round trip in front of every screen that shows a theme.
+  const [{ data: themes }, posts] = await Promise.all([
+    db.from("themes").select(THEME_COLUMNS).eq("board_id", boardId),
+    listPosts(boardId, { limit: 500 }),
+  ]);
+  if (!themes?.length) return [];
   const rows: ThemeRow[] = themes.map((t) => {
     const mine = posts.filter((p) => p.theme_id === t.id);
     const votes = mine.reduce((a, p) => a + p.vote_count, 0);
