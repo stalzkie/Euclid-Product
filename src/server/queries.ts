@@ -65,15 +65,14 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
     return count ?? 0;
   };
 
-  const { data: postIds } = await db.from("posts").select("id").eq("board_id", boardId);
-  const ids = (postIds ?? []).map((p) => p.id);
-
+  // Votes and comments belong to posts, and posts to a board. Joining through
+  // that in the database is what lets everything below be asked for at once:
+  // fetching the board's post ids first would make every other read wait on it.
   const countVotes = async (from: string, to?: string) => {
-    if (!ids.length) return 0;
     let q = db
       .from("votes")
-      .select("id", { count: "exact", head: true })
-      .in("post_id", ids)
+      .select("id, posts!inner(board_id)", { count: "exact", head: true })
+      .eq("posts.board_id", boardId)
       .gte("created_at", from);
     if (to) q = q.lt("created_at", to);
     const { count } = await q;
@@ -81,11 +80,10 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
   };
 
   const countComments = async (from: string, to?: string) => {
-    if (!ids.length) return 0;
     let q = db
       .from("comments")
-      .select("id", { count: "exact", head: true })
-      .in("post_id", ids)
+      .select("id, posts!inner(board_id)", { count: "exact", head: true })
+      .eq("posts.board_id", boardId)
       .eq("internal", false)
       .gte("created_at", from);
     if (to) q = q.lt("created_at", to);
@@ -93,9 +91,9 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
     return count ?? 0;
   };
 
-  // Every one of these reads is independent once the post ids are known, and
-  // each is a round trip to Supabase. Issued together they cost one wait
-  // instead of six, which is most of what Home spends its time on.
+  // None of these depends on another, and each is a round trip to Supabase.
+  // Issued together they cost one wait instead of seven, which is most of what
+  // Home used to spend its time on.
   const [
     thisWeekPosts,
     lastWeekPosts,
@@ -115,13 +113,11 @@ export async function getWeekKpis(boardId: string): Promise<BoardKpis> {
     countComments(weekAgo),
     countComments(twoWeeksAgo, weekAgo),
     // Active voters this week, and how many of them pay.
-    ids.length
-      ? db
-          .from("votes")
-          .select("end_user_id, end_users(segments)")
-          .in("post_id", ids)
-          .gte("created_at", weekAgo)
-      : Promise.resolve({ data: [] as { end_user_id: string; end_users: unknown }[] }),
+    db
+      .from("votes")
+      .select("end_user_id, end_users(segments), posts!inner(board_id)")
+      .eq("posts.board_id", boardId)
+      .gte("created_at", weekAgo),
     db
       .from("posts")
       .select("id", { count: "exact", head: true })
