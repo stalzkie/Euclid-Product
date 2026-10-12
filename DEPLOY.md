@@ -2,8 +2,9 @@
 
 Everything in here needs an account, a secret or a DNS record, which is why it
 is a document and not code. The code side is done: `vercel.json` carries the
-schedule, the job routes carry their own timeouts, and `.env.example` lists
-every variable the app reads.
+region and the schedules, the job routes carry their own timeouts,
+`scripts/vercel-env.mjs` pushes the secrets, and `.env.example` lists every
+variable the app reads.
 
 ## 1. The database is already live
 
@@ -15,7 +16,27 @@ If you ever stand up a second environment, apply `0001` … `0010` in order
 through the Supabase SQL editor. Do not paste SQL through the Windows
 clipboard; see HANDOFF.md for why.
 
-## 2. Create the project
+## 2. Deploy in the database's region
+
+**The Supabase project is in AWS `ap-southeast-2` (Sydney)**, which is
+`syd1` on Vercel. `vercel.json` pins functions there.
+
+This is the single biggest thing available to the app's speed. Every screen
+is one or two round trips to Supabase, and from a development machine each
+costs 400–650 ms; from a function in the same AWS region it is single-digit
+milliseconds. A dashboard navigation measured at 0.8–1.9 s locally should
+land near 200 ms deployed, without another line of code.
+
+How the region was established, in case the project is ever moved:
+`db.<ref>.supabase.co` resolves to `2406:da1c:4c7:f800::28d2`, and
+`2406:da1c::/35` is `ap-southeast-2` in AWS's published `ip-ranges.json`.
+
+Hobby allows one non-default region and `vercel.json` sets it, so no
+dashboard step is needed. Routing Middleware still runs at the edge near the
+visitor — which is fine, because it verifies the session against the
+project's public key set in process rather than calling the auth server.
+
+## 3. Create the project
 
 ```
 npx vercel link          # or import the GitHub repo at vercel.com/new
@@ -24,10 +45,18 @@ npx vercel --prod
 
 The repo is `stalzkie/Euclid-Product`, and `main` is the production branch.
 
-## 3. Environment variables
+## 4. Environment variables
 
-Set these in the project's settings, for Production and Preview. The values
-are in your local `.env.local`, which is not committed.
+`node scripts/vercel-env.mjs production` pushes every variable from your
+local `.env.local` to the linked project. It never prints a value, skips the
+three `TEST_*` variables that describe your machine, and replaces rather than
+appends, so it is safe to re-run. `--dry` shows what it would do without an
+account.
+
+Set `NEXT_PUBLIC_APP_URL` to the deployment's own hostname afterwards, and
+deploy again: `NEXT_PUBLIC_*` values are baked into the client bundle at
+build time, so a build made with `http://localhost:3000` in it will hand
+founders install snippets pointing at their own laptop.
 
 | Variable | Needed for | Without it |
 |---|---|---|
@@ -47,7 +76,7 @@ load the widget from. It is what the middleware compares the incoming `Host`
 against to tell a custom domain from this deployment, so getting it wrong does
 not fail loudly — custom domains simply stop resolving to their boards.
 
-## 4. The scheduler
+## 5. The scheduler
 
 `vercel.json` declares both jobs. Vercel adds `Authorization: Bearer
 $CRON_SECRET` to a cron request on its own once that variable is set, which is
@@ -71,7 +100,7 @@ On another host, point any scheduler at the same two URLs with that header:
 curl -X POST https://<host>/api/jobs/run -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-## 5. DNS
+## 6. DNS
 
 `euclidhq.com` currently carries only the Resend records. Add:
 
@@ -82,7 +111,7 @@ curl -X POST https://<host>/api/jobs/run -H "Authorization: Bearer $CRON_SECRET"
 Resend's verification records are already in place on Hostinger and one real
 email has been delivered through them.
 
-## 6. After the first deploy
+## 7. After the first deploy
 
 - Open `/install` and copy the script tag; it should carry the production
   hostname, not localhost.
