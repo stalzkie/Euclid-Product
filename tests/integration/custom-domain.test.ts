@@ -118,18 +118,13 @@ suite("custom domain", () => {
     try {
       // The unique index is what stops a second board taking a verified
       // hostname, so it is checked here rather than trusted.
-      const response = await fetch(
-        `${process.env.TEST_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/boards?id=eq.${other.boardId}`,
-        {
-          method: "PATCH",
-          headers: {
-            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-            authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ custom_domain: DOMAIN }),
-        },
-      );
+      // Through the shared helper: this read its URL from TEST_SUPABASE_URL
+      // and its key from SUPABASE_SERVICE_ROLE_KEY, so in CI it offered the
+      // production key to the local stack and was turned away with PGRST301
+      // before it ever reached the constraint it was written to check.
+      const response = await db.patchRaw(`boards?id=eq.${other.boardId}`, {
+        custom_domain: DOMAIN,
+      });
 
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(await response.text()).toContain("duplicate key");

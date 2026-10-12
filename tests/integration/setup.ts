@@ -94,6 +94,19 @@ export const db = {
       body: JSON.stringify(body),
     });
   },
+  /**
+   * A PATCH that hands back the response, for the tests that assert on a
+   * write being *refused*. Going through here rather than a hand-rolled
+   * fetch is what keeps a test pointed at the same database as the rest of
+   * the suite.
+   */
+  async patchRaw(path: string, body: unknown): Promise<Response> {
+    return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      method: "PATCH",
+      headers: dbHeaders,
+      body: JSON.stringify(body),
+    });
+  },
   async insert<T = Record<string, unknown>>(table: string, rows: unknown): Promise<T[]> {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
