@@ -15,6 +15,7 @@ import {
   cx,
 } from "@/components/ui";
 import { Segmented, Spinner, ToggleRow } from "@/components/controls";
+import { Collapse, FadeRise, IconSwap, Shimmer, useToast } from "@/components/motion";
 import { ago, shortDate } from "@/lib/format";
 import type { ChangelogEntry } from "@/lib/types";
 import {
@@ -54,7 +55,7 @@ export function ChangelogView({
   const [showBadge, setShowBadge] = useState(selected?.show_badge ?? true);
   const [markShipped, setMarkShipped] = useState(true);
   const [dirty, setDirty] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
   const [pending, start] = useTransition();
@@ -62,8 +63,7 @@ export function ChangelogView({
   const voters = linked.reduce((a, p) => a + p.voters, 0);
 
   const flash = (message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 5000);
+    toast(message);
   };
 
   const save = () =>
@@ -231,29 +231,34 @@ export function ChangelogView({
                   onClick={publish}
                   disabled={pending || selected.published}
                 >
+                  {(pending || selected.published) && (
+                    <IconSwap swapKey={selected.published ? "done" : "working"}>
+                      {selected.published ? (
+                        <Icon name="check" size={14} strokeWidth={2.4} />
+                      ) : (
+                        <Spinner />
+                      )}
+                    </IconSwap>
+                  )}
                   {selected.published ? "Published" : "Publish"}
                 </Button>
               </div>
             </div>
 
-            {toast && (
-              <Banner tone="ok" icon="check">
-                {toast}
-              </Banner>
-            )}
             {error && (
               <Banner tone="bad" icon="warn">
                 {error}
               </Banner>
             )}
-            {selected.published && (
+            <Collapse open={selected.published}>
               <Banner tone="ok" icon="check">
                 Published {selected.published_at ? shortDate(selected.published_at) : ""} ·{" "}
                 {selected.voters_notified} voter
                 {selected.voters_notified === 1 ? "" : "s"} emailed
               </Banner>
-            )}
+            </Collapse>
 
+            <FadeRise key={view}>
             {view === "edit" ? (
               <Card className="flex flex-col gap-4 p-[18px]">
                 <label className="flex flex-col gap-[6px] text-[13px] font-medium">
@@ -279,7 +284,7 @@ export function ChangelogView({
                   {linked.map((p) => (
                     <span
                       key={p.id}
-                      className="flex items-center gap-2 rounded-chip border border-line bg-subtle px-2 py-[4px] text-[12.5px]"
+                      className="eu-crossfade flex items-center gap-2 rounded-chip border border-line bg-subtle px-2 py-[4px] text-[12.5px]"
                     >
                       <strong className="font-medium">
                         #{p.number} {p.title}
@@ -341,6 +346,7 @@ export function ChangelogView({
 
                 {/* Body */}
                 <div className="overflow-hidden rounded-control border border-line">
+                  {pending && <Shimmer label="Drafting the changelog entry" />}
                   <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-2">
                     <span className="text-[12px] text-ink-3">Markdown</span>
                     <span className="flex-1" />
@@ -412,6 +418,7 @@ export function ChangelogView({
                 </div>
               </Card>
             )}
+            </FadeRise>
 
             {/* Publish options */}
             <section

@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { STATUS_LABEL, STATUS_LOOK, type PostStatus } from "@/lib/types";
+import { FadeRise } from "./motion/fade-rise";
+import { CountUp } from "./motion/count-up";
 
 /**
  * The component vocabulary from Foundations. Ink is the one primary per view.
@@ -30,7 +32,7 @@ const VARIANT: Record<Variant, string> = {
 
 const BASE =
   "inline-flex h-9 items-center justify-center gap-[7px] rounded-control px-[14px] " +
-  "text-[13.5px] font-medium transition-colors disabled:opacity-50 " +
+  "text-[13.5px] font-medium eu-press disabled:opacity-50 " +
   "disabled:pointer-events-none whitespace-nowrap";
 
 export function Button({
@@ -83,7 +85,7 @@ export function SplitButton({
     <div className="flex overflow-hidden rounded-control">
       <Link
         href={href}
-        className="flex h-9 items-center bg-ink px-[14px] text-[13.5px] font-medium text-white no-underline hover:bg-[#28282d]"
+        className="eu-press flex h-9 items-center bg-ink px-[14px] text-[13.5px] font-medium text-white no-underline hover:bg-[#28282d]"
       >
         {label}
       </Link>
@@ -91,7 +93,7 @@ export function SplitButton({
         type="button"
         aria-label="More create options"
         onClick={onMore}
-        className="flex h-9 w-8 items-center justify-center border-l border-ink-edge bg-ink text-white hover:bg-[#28282d]"
+        className="eu-press flex h-9 w-8 items-center justify-center border-l border-ink-edge bg-ink text-white hover:bg-[#28282d]"
       >
         <Icon name="chevronDown" size={14} strokeWidth={2} />
       </button>
@@ -177,7 +179,7 @@ export function StatusChip({ status }: { status: PostStatus }) {
   const look = STATUS_LOOK[status];
   return (
     <span
-      className="whitespace-nowrap rounded-full px-[9px] py-[3px] text-[12px] font-medium"
+      className="eu-crossfade whitespace-nowrap rounded-full px-[9px] py-[3px] text-[12px] font-medium"
       style={{ background: look.bg, color: look.fg }}
     >
       {STATUS_LABEL[status]}
@@ -203,7 +205,7 @@ export function Chip({
   return (
     <span
       className={cx(
-        "whitespace-nowrap rounded-full px-[7px] py-[2px] text-[12px] font-medium",
+        "eu-crossfade whitespace-nowrap rounded-full px-[7px] py-[2px] text-[12px] font-medium",
         tones[tone],
       )}
     >
@@ -241,6 +243,7 @@ export function Stat({
   deltaTone = "ok",
   note,
   className,
+  metric,
 }: {
   label: string;
   value: string | number;
@@ -248,12 +251,26 @@ export function Stat({
   deltaTone?: "ok" | "bad" | "neutral";
   note?: string;
   className?: string;
+  /**
+   * Turns the number into a count-up the first time it is seen this session.
+   * Pass something stable and unique; omit it for a figure that should simply
+   * be there, which is most of them.
+   */
+  metric?: string;
 }) {
   return (
     <div className={cx("flex flex-col gap-[6px] px-5 py-4", className)}>
       <span className="text-[13px] text-ink-2">{label}</span>
       <span className="flex items-baseline gap-2">
-        <span className="tnum text-[30px] font-semibold tracking-[-0.02em]">{value}</span>
+        {metric !== undefined && typeof value === "number" ? (
+          <CountUp
+            value={value}
+            metric={metric}
+            className="text-[30px] font-semibold tracking-[-0.02em]"
+          />
+        ) : (
+          <span className="tnum text-[30px] font-semibold tracking-[-0.02em]">{value}</span>
+        )}
         {delta && (
           <span
             className={cx(
@@ -308,17 +325,34 @@ export function Meter({
   value,
   max,
   color = "#1A8CFF",
+  /** The colour it crossfades to once the allowance is gone. */
+  limitColor = "#F59E0B",
 }: {
   value: number;
   max: number;
   color?: string;
+  limitColor?: string;
 }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  const full = pct >= 100;
+
   return (
-    <div className="h-[6px] rounded-full bg-line" role="presentation">
+    <div className="h-[6px] overflow-hidden rounded-full bg-line" role="presentation">
+      {/*
+        A full-width bar scaled from its left edge. Animating the width would
+        lay the page out again on every frame; a transform is composited, and
+        the parent's overflow gives the fill its rounded cap.
+      */}
       <div
-        className="h-[6px] rounded-full transition-[width]"
-        style={{ width: `${pct}%`, background: color }}
+        className={cx(
+          "h-full w-full origin-left",
+          "transition-[transform,background-color] ease-eu-standard",
+          "duration-[var(--eu-dur-moderate)]",
+        )}
+        style={{
+          transform: `scaleX(${pct / 100})`,
+          background: full ? limitColor : color,
+        }}
       />
     </div>
   );
@@ -336,7 +370,9 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+    // One fade for the whole thing. The illustration does not move: an empty
+    // state is a dead end, and animating it suggests something is coming.
+    <FadeRise className="flex flex-col items-center gap-3 px-6 py-14 text-center">
       <span className="flex h-11 w-11 items-center justify-center rounded-[10px] bg-muted text-ink-3">
         <Icon name={icon} size={20} />
       </span>
@@ -345,7 +381,7 @@ export function EmptyState({
         <p className="max-w-[380px] text-[13px] leading-[1.5] text-ink-3">{body}</p>
       </div>
       {action}
-    </div>
+    </FadeRise>
   );
 }
 
@@ -372,11 +408,11 @@ export function Field({
 }
 
 export const inputClass =
-  "h-9 w-full rounded-control border border-line-strong bg-canvas px-3 " +
+  "eu-colors h-9 w-full rounded-control border border-line-strong bg-canvas px-3 " +
   "text-[14px] font-normal text-ink placeholder:text-ink-3 outline-none";
 
 export const textareaClass =
-  "w-full rounded-control border border-line-strong bg-canvas px-3 py-2 " +
+  "eu-colors w-full rounded-control border border-line-strong bg-canvas px-3 py-2 " +
   "text-[14px] font-normal leading-[1.5] text-ink placeholder:text-ink-3 outline-none resize-y";
 
 export function Input(props: ComponentProps<"input">) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { AnimatePresence } from "motion/react";
 import { Icon } from "@/components/icons";
 import {
   Banner,
@@ -27,6 +28,15 @@ import {
   type PromptIncludes,
   type PromptTarget,
 } from "@/lib/types";
+import {
+  AnimatedNumber,
+  Collapse,
+  DiffHighlight,
+  FadeRise,
+  IconSwap,
+  Shimmer,
+} from "@/components/motion";
+import { changedLines } from "@/lib/motion/lines";
 import { ago, plural } from "@/lib/format";
 import { confirmAssumption, generateBuildPrompt, markCopied } from "./actions";
 
@@ -100,6 +110,13 @@ export function PromptWorkbench({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pending, start] = useTransition();
 
+  /*
+    The previous version of the document, kept only so the next one can tint
+    the lines that are new. Set when a generation comes back rather than on
+    every render, because a re-render has not changed anything.
+  */
+  const [previousBody, setPreviousBody] = useState<string | null>(null);
+
   const spec = targetSpec(target);
   const assumptions = (prompt?.assumptions ?? []) as Assumption[];
   const open = assumptions.filter((a) => !a.confirmed);
@@ -162,6 +179,7 @@ export function PromptWorkbench({
       });
 
       if (res.ok) {
+        setPreviousBody(prompt?.body ?? null);
         setPrompt(res.prompt);
         setLeft(res.promptsLeft);
         setRefinement("");
@@ -316,10 +334,13 @@ export function PromptWorkbench({
           </label>
 
           {prompt && assumptions.length > 0 && (
-            <section
-              aria-labelledby="asm-title"
-              className="flex flex-col gap-3 rounded-[14px] border border-[#FDE68A] bg-warn-note p-4"
-            >
+            // Confirming the last one collapses the panel: there is nothing
+            // left to check, and an empty amber box still reads as a warning.
+            <Collapse open={open.length > 0}>
+              <section
+                aria-labelledby="asm-title"
+                className="flex flex-col gap-3 rounded-[14px] border border-[#FDE68A] bg-warn-note p-4"
+              >
               <h2
                 id="asm-title"
                 className="flex items-center gap-[7px] text-[13px] font-semibold text-warn"
@@ -333,8 +354,10 @@ export function PromptWorkbench({
                     {a.text}
                   </span>
                   {a.confirmed ? (
-                    <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-ok">
-                      <Icon name="check" size={12} strokeWidth={2.4} />
+                    <span className="eu-crossfade flex shrink-0 items-center gap-1 text-[12px] font-medium text-ok">
+                      <IconSwap swapKey="confirmed" size={12}>
+                        <Icon name="check" size={12} strokeWidth={2.4} />
+                      </IconSwap>
                       Confirmed
                     </span>
                   ) : (
@@ -345,6 +368,7 @@ export function PromptWorkbench({
                         start(async () => {
                           const res = await confirmAssumption(prompt.id, a.id);
                           if (res.ok) {
+                            setPreviousBody(prompt.body);
                             setPrompt({
                               ...prompt,
                               assumptions: res.assumptions,
@@ -353,18 +377,19 @@ export function PromptWorkbench({
                           }
                         })
                       }
-                      className="h-7 shrink-0 rounded-[6px] border border-line bg-canvas px-[10px] text-[12px] font-medium hover:bg-muted disabled:opacity-50"
+                      className="eu-press h-7 shrink-0 rounded-[6px] border border-line bg-canvas px-[10px] text-[12px] font-medium hover:bg-muted disabled:opacity-50"
                     >
                       Confirm
                     </button>
                   )}
                 </div>
               ))}
-              <p className="text-[11.5px] leading-[1.45] text-warn">
-                Confirming an assumption removes it from the prompt. Correcting one is a
-                refinement — type the correction below.
-              </p>
-            </section>
+                <p className="text-[11.5px] leading-[1.45] text-warn">
+                  Confirming an assumption removes it from the prompt. Correcting one is
+                  a refinement — type the correction below.
+                </p>
+              </section>
+            </Collapse>
           )}
 
           {!prompt && (
@@ -398,8 +423,9 @@ export function PromptWorkbench({
                   ]}
                 />
                 <span className="flex items-center gap-3 pb-[9px] text-[12px] text-ink-3">
-                  <span className="tnum">
-                    {lines} lines · about {tokens} tokens
+                  <span className="flex items-center gap-1">
+                    <AnimatedNumber value={lines} /> lines - about{" "}
+                    <AnimatedNumber value={tokens} /> tokens
                   </span>
                   <span className="flex items-center gap-[5px] text-ai-deep">
                     <Icon name="shield" size={13} strokeWidth={1.8} />
@@ -409,15 +435,41 @@ export function PromptWorkbench({
               </div>
 
               <div className="overflow-hidden rounded-card border border-line">
+                {/* The hairline exists only while a request is in flight. */}
+                <AnimatePresence>
+                  {pending && (
+                    <FadeRise key="shimmer" mountAnimation>
+                      <Shimmer label={"Generating the " + spec.label + " prompt"} />
+                    </FadeRise>
+                  )}
+                </AnimatePresence>
                 <div className="flex items-center justify-between border-b border-line bg-subtle px-4 py-[9px]">
-                  <span className="font-mono text-[12.5px] text-ink-2">{fileName}</span>
-                  <span className="text-[12px] text-ink-3">
-                    Formatted for {spec.label}
-                  </span>
+                  {/*
+                    Switching the target tool changes the file name and nothing
+                    else, so the file name is the only thing that crossfades.
+                    The document underneath stays exactly where it is.
+                  */}
+                  <FadeRise
+                    key={fileName}
+                    as="span"
+                    className="font-mono text-[12.5px] text-ink-2"
+                  >
+                    {fileName}
+                  </FadeRise>
+                  <FadeRise
+                    key={pending ? "generating" : spec.label}
+                    as="span"
+                    className="text-[12px] text-ink-3"
+                  >
+                    {pending ? "Generating..." : "Formatted for " + spec.label}
+                  </FadeRise>
                 </div>
-                <pre className="thin-scroll max-h-[620px] overflow-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-[13px] leading-[1.6] text-ink-deep">
-                  {body}
-                </pre>
+                <PromptBody
+                  body={body}
+                  previousBody={tab === "prompt" ? previousBody : null}
+                  version={prompt.id + tab}
+                  pending={pending}
+                />
               </div>
 
               {/* Refinement */}
@@ -507,5 +559,66 @@ export function PromptWorkbench({
         </main>
       </div>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The prompt document.
+ *
+ * Three things happen to it, and nothing else:
+ *
+ * While a request is in flight it dims to 60%, which says "this is about to
+ * be replaced" without taking it away — the founder can still read the version
+ * they have. When a new version arrives it crossfades, because the whole
+ * document changed and sliding it would be theatre. And the lines that are
+ * genuinely new get a brief pink tint, so a refinement can be read as a diff
+ * rather than re-read from the top.
+ *
+ * The lines are rendered one span per line specifically so a line can be
+ * tinted. The text is still a single pre block, so copy and select behave.
+ */
+function PromptBody({
+  body,
+  previousBody,
+  version,
+  pending,
+}: {
+  body: string;
+  previousBody: string | null;
+  /** Changes when the document is replaced, which is what triggers the fade. */
+  version: string;
+  pending: boolean;
+}) {
+  const lines = useMemo(() => body.split("\n"), [body]);
+  const changed = useMemo(() => changedLines(previousBody, body), [previousBody, body]);
+
+  return (
+    <FadeRise key={version}>
+      <pre
+        className={cx(
+          "thin-scroll max-h-[620px] overflow-auto whitespace-pre-wrap break-words",
+          "px-4 py-4 font-mono text-[13px] leading-[1.6] text-ink-deep",
+          "transition-opacity duration-[var(--eu-dur-base)] ease-eu-standard",
+          pending && "opacity-60",
+        )}
+        aria-busy={pending || undefined}
+      >
+        {lines.map((line, index) =>
+          changed.has(index) ? (
+            <DiffHighlight key={index} token={version} as="span">
+              {line}
+              {"\n"}
+            </DiffHighlight>
+          ) : (
+            <span key={index}>
+              {line}
+              {"\n"}
+            </span>
+          ),
+        )}
+      </pre>
+    </FadeRise>
   );
 }

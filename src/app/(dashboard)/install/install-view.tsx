@@ -14,6 +14,7 @@ import {
   cx,
 } from "@/components/ui";
 import { CopyIconButton, Segmented, Spinner, ToggleRow } from "@/components/controls";
+import { useToast } from "@/components/motion";
 import { IDENTITY_SNIPPETS, identityHandoff } from "@/lib/snippets";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 import { saveBoardSettings } from "../designer/actions";
@@ -85,7 +86,7 @@ export function InstallView({
   const [approval, setApproval] = useState(board.requireApproval);
   const [categories, setCategories] = useState(board.categories.join(", "));
   const [snippet, setSnippet] = useState(IDENTITY_SNIPPETS[0].id);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -103,8 +104,7 @@ export function InstallView({
         categories: categories.split(",").map((c) => c.trim()).filter(Boolean),
       });
       if (res.ok) {
-        setToast("Saved. The widget picks this up on its next load.");
-        setTimeout(() => setToast(null), 4000);
+        toast("Saved. The widget picks this up on its next load.");
         router.refresh();
       } else {
         setError(res.error);
@@ -127,11 +127,6 @@ export function InstallView({
         }
       />
 
-      {toast && (
-        <Banner tone="ok" icon="check">
-          {toast}
-        </Banner>
-      )}
       {error && (
         <Banner tone="bad" icon="warn">
           {error}

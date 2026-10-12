@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./icons";
 import { Banner, SectionTitle, cx } from "./ui";
 import { CopyIconButton, Segmented } from "./controls";
+import { InstallPing } from "./install-ping";
 import { FRAMEWORKS, agentInstallPrompt, installSnippet } from "@/lib/snippets";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 
@@ -127,25 +128,17 @@ export function InstallPanel({
         <div
           role="status"
           className={cx(
-            "flex flex-wrap items-center gap-3 rounded-control border px-4 py-3",
+            "eu-crossfade flex flex-wrap items-center gap-3 rounded-control border px-4 py-3",
             seen ? "border-ok-line bg-ok-wash" : "border-line bg-subtle",
           )}
         >
-          <span
-            className={cx(
-              "flex h-7 w-7 items-center justify-center rounded-full",
-              seen ? "bg-ok-bright text-white" : "bg-line text-ink-3",
-            )}
-          >
-            {seen ? (
-              <Icon name="check" size={14} strokeWidth={2.6} />
-            ) : (
-              <span className="h-2 w-2 animate-pulse rounded-full bg-ink-3" />
-            )}
-          </span>
+          <InstallPing seen={seen} />
           <span className="flex min-w-[220px] flex-1 flex-col">
             <span
-              className={cx("text-[13px] font-medium", seen ? "text-ok" : "text-ink")}
+              className={cx(
+                "eu-crossfade text-[13px] font-medium",
+                seen ? "text-ok" : "text-ink",
+              )}
             >
               {seen
                 ? "Your board is live. The widget has loaded from your app."

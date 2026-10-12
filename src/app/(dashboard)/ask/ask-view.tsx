@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { m } from "motion/react";
 import { Icon } from "@/components/icons";
 import {
   AiLabel,
@@ -16,6 +17,13 @@ import {
   cx,
 } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import {
+  Collapse,
+  FadeRise,
+  IconSwap,
+  useReduceMotion,
+} from "@/components/motion";
+import { dur, stagger } from "@/lib/motion/tokens";
 import { ago } from "@/lib/format";
 import type { ChatMessage } from "@/lib/types";
 import { ask } from "./actions";
@@ -57,6 +65,7 @@ export function AskEuclidView({
   aiReady: boolean;
 }) {
   const router = useRouter();
+  const reduceMotion = useReduceMotion();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState(prefill);
   const [thread, setThread] = useState(threadId);
@@ -72,8 +81,11 @@ export function AskEuclidView({
   const optimisticId = useRef(0);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, pending]);
+    endRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "end",
+    });
+  }, [messages.length, pending, reduceMotion]);
 
   const send = (question: string) => {
     const text = question.trim();
@@ -180,7 +192,7 @@ export function AskEuclidView({
                     type="button"
                     disabled={!chatEnabled || !aiReady}
                     onClick={() => send(s)}
-                    className="rounded-control border border-line bg-canvas px-3 py-2 text-left text-[13px] text-ink-body hover:bg-subtle disabled:opacity-50"
+                    className="eu-press rounded-control border border-line bg-canvas px-3 py-2 text-left text-[13px] text-ink-body hover:bg-subtle disabled:opacity-50"
                   >
                     {s}
                   </button>
@@ -191,16 +203,16 @@ export function AskEuclidView({
 
           {messages.map((m) =>
             m.role === "user" ? (
-              <div key={m.id} className="flex items-start justify-end gap-3">
+              <FadeRise key={m.id} className="flex items-start justify-end gap-3">
                 <p className="max-w-[560px] rounded-[14px] rounded-tr-[4px] bg-muted px-4 py-3 text-[14px] leading-[1.55]">
                   {m.content}
                 </p>
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ai-tint text-[10.5px] font-semibold text-ai-deep">
                   {founderInitials}
                 </span>
-              </div>
+              </FadeRise>
             ) : (
-              <div key={m.id} className="flex flex-col gap-3">
+              <FadeRise key={m.id} className="flex flex-col gap-3">
                 <AiLabel>Euclid</AiLabel>
 
                 {m.steps.length > 0 && (
@@ -216,8 +228,13 @@ export function AskEuclidView({
                           return next;
                         })
                       }
-                      className="flex w-fit items-center gap-[6px] rounded-control border border-line bg-subtle px-[10px] py-[6px] text-[12.5px] font-medium text-ink-2 hover:bg-muted"
+                      className="eu-press flex w-fit items-center gap-[6px] rounded-control border border-line bg-subtle px-[10px] py-[6px] text-[12.5px] font-medium text-ink-2 hover:bg-muted"
                     >
+                      {/* The tools have finished by the time the pill exists,
+                          so it arrives as a check rather than a spinner. */}
+                      <IconSwap swapKey="done" size={13}>
+                        <Icon name="check" size={13} strokeWidth={2.4} className="text-ok" />
+                      </IconSwap>
                       <Icon
                         name={openSteps.has(m.id) ? "chevronDown" : "chevronRight"}
                         size={13}
@@ -227,24 +244,30 @@ export function AskEuclidView({
                       {m.citations.length === 1 ? "" : "s"} in {m.steps.length} step
                       {m.steps.length === 1 ? "" : "s"}
                     </button>
-                    {openSteps.has(m.id) && (
+                    <Collapse open={openSteps.has(m.id)}>
                       <ol className="flex flex-col gap-1 rounded-control border border-line bg-subtle px-4 py-3 font-mono text-[12px] text-ink-2">
                         {m.steps.map((s, i) => (
-                          <li key={`${s.tool}-${i}`}>
+                          <FadeRise as="li" key={`${s.tool}-${i}`} mountAnimation
+                            delay={Math.min(i, stagger.max - 1) * stagger.step}>
                             {i + 1}. {s.tool}({s.detail})
-                          </li>
+                          </FadeRise>
                         ))}
                       </ol>
-                    )}
+                    </Collapse>
                   </div>
                 )}
 
                 <div className="flex max-w-[680px] flex-col gap-3 text-[14px] leading-[1.6] text-ink-body">
-                  {renderAnswer(m.content)}
+                  {renderAnswer(m.content, m.id)}
                 </div>
 
                 {m.follow_ups.length > 0 && (
-                  <section
+                  <FadeRise
+                    as="section"
+                    distance="md"
+                    // After the paragraphs have finished arriving, so the
+                    // layout does not shift while the answer is being read.
+                    delay={stagger.max * stagger.step}
                     aria-label="What next"
                     className="flex flex-col gap-2 rounded-[14px] border border-ai-line bg-ai-wash p-4"
                   >
@@ -258,22 +281,22 @@ export function AskEuclidView({
                           type="button"
                           disabled={pending || !chatEnabled}
                           onClick={() => send(f)}
-                          className="rounded-control border border-line bg-canvas px-3 py-2 text-left text-[13px] text-ink-body hover:bg-subtle disabled:opacity-50"
+                          className="eu-press rounded-control border border-line bg-canvas px-3 py-2 text-left text-[13px] text-ink-body hover:bg-subtle disabled:opacity-50"
                         >
                           {f}
                         </button>
                       ))}
                     </div>
-                  </section>
+                  </FadeRise>
                 )}
-              </div>
+              </FadeRise>
             ),
           )}
 
           {pending && (
-            <div className="flex items-center gap-2 text-[13px] text-ink-3">
+            <FadeRise className="flex items-center gap-2 text-[13px] text-ink-3" role="status">
               <Spinner /> Euclid is querying your board…
-            </div>
+            </FadeRise>
           )}
           <div ref={endRef} />
         </div>
@@ -407,8 +430,13 @@ export function AskEuclidView({
 /**
  * Renders the answer, turning #142 references into links so the founder can
  * jump to the post an assertion rests on.
+ *
+ * Each paragraph fades from 0.35 to full as it lands, 30ms behind the one
+ * before it and never more than eight deep, so a long answer still finishes
+ * arriving inside a quarter of a second. No typewriter and no cursor: the text
+ * is already written, and pretending otherwise would slow the reader down.
  */
-function renderAnswer(content: string) {
+function renderAnswer(content: string, messageId: string) {
   return content
     .split("\n")
     .filter((line) => line.trim())
@@ -430,17 +458,39 @@ function renderAnswer(content: string) {
         ),
       );
 
-      return bullet ? (
-        <p key={i} className="flex gap-2 pl-1">
-          <span aria-hidden="true" className="text-ink-3">
-            ·
-          </span>
-          <span>{body}</span>
-        </p>
-      ) : (
-        <p key={i}>{body}</p>
+      const delay = Math.min(i, stagger.max - 1) * stagger.step;
+
+      return (
+        <Chunk key={`${messageId}-${i}`} delay={delay}>
+          {bullet ? (
+            <p className="flex gap-2 pl-1">
+              <span aria-hidden="true" className="text-ink-3">
+                ·
+              </span>
+              <span>{body}</span>
+            </p>
+          ) : (
+            <p>{body}</p>
+          )}
+        </Chunk>
       );
     });
+}
+
+/**
+ * One chunk of a streamed-feeling answer: it starts dim rather than invisible,
+ * so nothing the founder is waiting for is ever actually hidden.
+ */
+function Chunk({ delay, children }: { delay: number; children: React.ReactNode }) {
+  return (
+    <m.div
+      initial={{ opacity: 0.35 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: dur.fast, delay }}
+    >
+      {children}
+    </m.div>
+  );
 }
 
 /** Minimal **bold** support; the model writes plain prose otherwise. */

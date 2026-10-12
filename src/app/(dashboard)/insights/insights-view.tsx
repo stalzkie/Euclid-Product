@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { m } from "motion/react";
 import { Icon } from "@/components/icons";
 import { Banner, Card, Meter, SectionTitle, cx } from "@/components/ui";
 import { shortDate, signedPct, thousands } from "@/lib/format";
 import { POST_STATUSES, STATUS_LABEL, STATUS_LOOK, type IdentityMode, type PostStatus, type PromptTarget } from "@/lib/types";
 import { targetSpec } from "@/lib/ai/targets";
+import { AnimatedNumber, CountUp, FadeRise, useReduceMotion } from "@/components/motion";
+import { barStagger, dur, ease } from "@/lib/motion/tokens";
 import type { BoardKpis, DailyPoint } from "@/server/queries";
 
 const PLAN_COLOR = ["#0A72DC", "#7C3AED", "#D6D6D2", "#16A34A", "#B45309"];
@@ -39,9 +42,35 @@ export function InsightsView({
   identityMode: IdentityMode;
 }) {
   const router = useRouter();
+  const reduceMotion = useReduceMotion();
   const [hover, setHover] = useState<number | null>(null);
+  const chartRef = useRef<SVGSVGElement>(null);
+  const [drawIn, setDrawIn] = useState(false);
 
   const chart = useMemo(() => buildChart(series), [series]);
+
+  /*
+    Draw-in is a first-view animation, so it waits for the chart to actually
+    be on screen rather than firing while it is below the fold. It runs once:
+    the flag is set before the first paint of the animated elements and never
+    cleared, so a range change re-renders the same chart without redrawing it.
+  */
+  useEffect(() => {
+    if (reduceMotion) return;
+    const el = chartRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setDrawIn(true);
+      },
+      { threshold: 0.25 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [reduceMotion]);
 
   // Second half against first half, which is what the headline claims.
   const half = Math.floor(series.length / 2);
@@ -54,15 +83,26 @@ export function InsightsView({
   const generated = promptsByTool.reduce((a, t) => a + t.generated, 0);
   const copied = promptsByTool.reduce((a, t) => a + t.copied, 0);
 
+  /*
+    `raw` is what counts up; `value` is how it reads. Keeping them apart means
+    a formatted tile — "14d", a thousands separator — still animates, and a
+    tile with nothing to report ("—") simply has nothing to count to.
+  */
+  const count = (n: number) => thousands(n);
+  const days_ = (n: number) => `${n}d`;
+  const dash = () => "—";
+
   const kpiTiles = [
-    { label: "New posts", value: thousands(totals.posts), delta: signedPct(kpis.newPostsDelta), tone: "ok" as const },
-    { label: "Votes", value: thousands(totals.votes), delta: signedPct(kpis.votesDelta), tone: "ok" as const },
-    { label: "Voters", value: thousands(kpis.voters), delta: `${kpis.payingVoters} paying`, tone: "neutral" as const },
-    { label: "Comments", value: thousands(kpis.comments), delta: signedPct(kpis.commentsDelta), tone: "ok" as const },
-    { label: "Shipped", value: thousands(kpis.shippedThisMonth), delta: `${kpis.votersNotified} notified`, tone: "neutral" as const },
+    { label: "New posts", raw: totals.posts, format: count, delta: signedPct(kpis.newPostsDelta), tone: "ok" as const },
+    { label: "Votes", raw: totals.votes, format: count, delta: signedPct(kpis.votesDelta), tone: "ok" as const },
+    { label: "Voters", raw: kpis.voters, format: count, delta: `${kpis.payingVoters} paying`, tone: "neutral" as const },
+    { label: "Comments", raw: kpis.comments, format: count, delta: signedPct(kpis.commentsDelta), tone: "ok" as const },
+    { label: "Shipped", raw: kpis.shippedThisMonth, format: count, delta: `${kpis.votersNotified} notified`, tone: "neutral" as const },
     {
       label: "Time to ship",
-      value: kpis.timeToShip === null ? "—" : `${kpis.timeToShip}d`,
+      raw: kpis.timeToShip ?? 0,
+      // Nothing shipped yet is not a zero to count up to.
+      format: kpis.timeToShip === null ? dash : days_,
       delta: kpis.timeToShip === null ? "nothing shipped yet" : "median",
       tone: "neutral" as const,
     },
@@ -93,7 +133,7 @@ export function InsightsView({
                   aria-checked={on}
                   onClick={() => router.push(`/insights?range=${d}`)}
                   className={cx(
-                    "h-7 rounded-[7px] px-3 text-[12.5px] font-medium",
+                    "eu-press h-7 rounded-[7px] px-3 text-[12.5px] font-medium",
                     on ? "bg-canvas text-ink shadow-seg" : "text-ink-2",
                   )}
                 >
@@ -106,7 +146,7 @@ export function InsightsView({
             type="button"
             aria-label="Refresh"
             onClick={() => router.refresh()}
-            className="flex h-9 w-9 items-center justify-center rounded-control border border-line-strong text-ink-2 hover:bg-subtle"
+            className="eu-press flex h-9 w-9 items-center justify-center rounded-control border border-line-strong text-ink-2 hover:bg-subtle"
           >
             <Icon name="refresh" size={15} />
           </button>
@@ -136,9 +176,12 @@ export function InsightsView({
             )}
           >
             <span className="text-[12.5px] text-ink-2">{k.label}</span>
-            <span className="tnum text-[26px] font-semibold tracking-[-0.02em]">
-              {k.value}
-            </span>
+            <CountUp
+              value={k.raw}
+              format={k.format}
+              metric={`insights-kpi-${k.label}`}
+              className="text-[26px] font-semibold tracking-[-0.02em]"
+            />
             <span
               className={cx(
                 "text-[11.5px]",
@@ -187,6 +230,7 @@ export function InsightsView({
 
           <div className="relative min-w-0 flex-1">
             <svg
+              ref={chartRef}
               viewBox="0 0 1000 238"
               preserveAspectRatio="none"
               width="100%"
@@ -201,15 +245,56 @@ export function InsightsView({
                 stroke="#F1F1EF"
               />
               <path d="M0 236H1000" fill="none" stroke="#E7E7E4" />
-              <path d={chart.bars} fill="#EC4899" fillOpacity={0.5} />
-              <path d={chart.area} fill="#1A8CFF" fillOpacity={0.12} />
-              <polyline
+
+              {/*
+                The bars grow up out of the baseline, 20ms apart, the first
+                time the chart is on screen. After that they are simply there:
+                a chart that redraws every time you glance at it is a tic.
+              */}
+              {chart.bars.map((bar, i) => (
+                <m.rect
+                  key={bar.key}
+                  x={bar.x}
+                  y={236 - bar.height}
+                  width={bar.width}
+                  height={bar.height}
+                  fill="#EC4899"
+                  fillOpacity={0.5}
+                  style={{ transformOrigin: "center bottom", transformBox: "fill-box" }}
+                  initial={drawIn ? { scaleY: 0 } : false}
+                  animate={{ scaleY: 1 }}
+                  transition={{
+                    duration: dur.moderate,
+                    ease: ease.out,
+                    delay: i * barStagger,
+                  }}
+                />
+              ))}
+
+              <m.path
+                d={chart.area}
+                fill="#1A8CFF"
+                fillOpacity={0.12}
+                initial={drawIn ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                transition={{ duration: dur.data, ease: ease.out }}
+              />
+
+              {/*
+                The line draws itself left to right by unwinding its own dash:
+                stroke-dashoffset is one of the few properties the spec lets us
+                animate, and it is the only honest way to draw a line on.
+              */}
+              <m.polyline
                 points={chart.line}
                 fill="none"
                 stroke="#1A8CFF"
                 strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                initial={drawIn ? { pathLength: 0 } : false}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: dur.data, ease: ease.out }}
               />
               {hover !== null && chart.points[hover] && (
                 <>
@@ -265,14 +350,15 @@ export function InsightsView({
               </div>
             )}
 
-            <div
+            <FadeRise
+              key={days}
               aria-hidden="true"
               className="mt-2 flex justify-between text-[11px] text-ink-3"
             >
               {chart.xLabels.map((l) => (
                 <span key={l}>{l}</span>
               ))}
-            </div>
+            </FadeRise>
           </div>
         </div>
       </Card>
@@ -384,8 +470,8 @@ export function InsightsView({
                     color={STATUS_LOOK[s].dot}
                   />
                 </span>
-                <span className="tnum w-8 text-right text-[13px] font-medium">
-                  {statusCounts[s]}
+                <span className="w-8 text-right text-[13px] font-medium">
+                  <AnimatedNumber value={statusCounts[s]} />
                 </span>
               </Link>
             ))}
@@ -459,17 +545,17 @@ function buildChart(series: DailyPoint[]) {
           .join(" L")} L${x(n - 1).toFixed(1)} 236 Z`
       : "";
 
+  // One rect per bar rather than a single path: each has to be able to grow
+  // from the baseline on its own, 20ms behind the one to its left.
   const barWidth = Math.max(3, Math.min(18, step * 0.55));
   const bars = series
-    .map((d, i) => {
-      if (!d.posts) return "";
-      const h = hPosts(d.posts);
-      return `M${(x(i) - barWidth / 2).toFixed(1)} 236 v${(-h).toFixed(1)} h${barWidth.toFixed(
-        1,
-      )} v${h.toFixed(1)} Z`;
-    })
-    .filter(Boolean)
-    .join(" ");
+    .map((d, i) => ({
+      key: d.day,
+      x: x(i) - barWidth / 2,
+      width: barWidth,
+      height: hPosts(d.posts),
+    }))
+    .filter((bar) => bar.height > 0);
 
   const ticks = [headroom, Math.round(headroom * 0.75), Math.round(headroom * 0.5), Math.round(headroom * 0.25), 0].map(
     String,

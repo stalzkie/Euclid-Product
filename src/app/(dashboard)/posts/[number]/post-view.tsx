@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { AnimatePresence, m } from "motion/react";
 import { Icon } from "@/components/icons";
 import {
   AiCard,
@@ -18,6 +19,14 @@ import {
   cx,
 } from "@/components/ui";
 import { Spinner, Toggle, UnderlineTabs, VoteButton } from "@/components/controls";
+import {
+  AnimatedNumber,
+  FadeRise,
+  IconSwap,
+  Stagger,
+  useToast,
+} from "@/components/motion";
+import { dur, ease } from "@/lib/motion/tokens";
 import { ago, longDate, plural } from "@/lib/format";
 import { POST_STATUSES, STATUS_LABEL, type IdentityMode } from "@/lib/types";
 import { TARGETS, defaultTargetFor } from "@/lib/ai/targets";
@@ -61,13 +70,18 @@ export function PostDetailView({
   const [target, setTarget] = useState(defaultTargetFor(codingTools));
   const [notify, setNotify] = useState(true);
   const [summary, setSummary] = useState<DemandSummary | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const [copied, setCopied] = useState(false);
+  /*
+    The reply the founder just wrote, shown while the server catches up. It is
+    held at 60% opacity so it reads as "posting", not "posted", and it is
+    cleared when the refreshed post comes back carrying the real comment.
+  */
+  const [posting, setPosting] = useState<{ body: string; internal: boolean } | null>(null);
   const [pending, start] = useTransition();
 
   const flash = (message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 3500);
+    toast(message);
   };
 
   const mergedVotes = post.merged.reduce((a, m) => a + m.vote_count, 0);
@@ -136,13 +150,22 @@ export function PostDetailView({
                 <button
                   type="button"
                   onClick={() => setStatusOpen((v) => !v)}
-                  className="flex h-8 items-center gap-[6px] rounded-control border border-line-strong px-[10px] text-[13px] font-medium hover:bg-subtle"
+                  aria-expanded={statusOpen}
+                  className="eu-press flex h-8 items-center gap-[6px] rounded-control border border-line-strong px-[10px] text-[13px] font-medium hover:bg-subtle"
                 >
                   <StatusChip status={post.status} />
                   <Icon name="chevronDown" size={12} strokeWidth={2} />
                 </button>
-                {statusOpen && (
-                  <div className="absolute left-0 top-[36px] z-20 flex w-[180px] flex-col gap-[2px] rounded-control border border-line bg-canvas p-1 shadow-overlay">
+                <AnimatePresence>
+                  {statusOpen && (
+                  <m.div
+                    initial={{ opacity: 0, scale: 0.98, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, transition: { duration: dur.fast, ease: ease.in } }}
+                    transition={{ duration: dur.base, ease: ease.out }}
+                    style={{ transformOrigin: "top left" }}
+                    className="absolute left-0 top-[36px] z-20 flex w-[180px] flex-col gap-[2px] rounded-control border border-line bg-canvas p-1 shadow-overlay"
+                  >
                     {POST_STATUSES.map((s) => (
                       <button
                         key={s}
@@ -162,13 +185,14 @@ export function PostDetailView({
                             router.refresh();
                           })
                         }
-                        className="flex h-8 items-center rounded-[6px] px-2 text-left text-[13px] hover:bg-muted"
+                        className="eu-colors flex h-8 items-center rounded-[6px] px-2 text-left text-[13px] hover:bg-muted"
                       >
                         {STATUS_LABEL[s]}
                       </button>
                     ))}
-                  </div>
-                )}
+                  </m.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <div className="relative">
@@ -269,11 +293,6 @@ export function PostDetailView({
           </div>
         </article>
 
-        {toast && (
-          <Banner tone="ok" icon="check">
-            {toast}
-          </Banner>
-        )}
 
         {/* AI read of the demand */}
         <AiCard>
@@ -348,8 +367,10 @@ export function PostDetailView({
                     </span>
                   </span>
                   {s.state === "merged" ? (
-                    <span className="flex items-center gap-[6px] text-[12.5px] font-medium text-ok">
-                      <Icon name="check" size={13} strokeWidth={2.4} />
+                    <span className="eu-crossfade flex items-center gap-[6px] text-[12.5px] font-medium text-ok">
+                      <IconSwap swapKey="merged" size={13}>
+                        <Icon name="check" size={13} strokeWidth={2.4} />
+                      </IconSwap>
                       Merged
                     </span>
                   ) : s.state === "dismissed" ? (
@@ -382,14 +403,17 @@ export function PostDetailView({
         <section aria-labelledby="com-title" className="flex flex-col gap-4">
           <SectionTitle id="com-title">
             Comments{" "}
-            <span className="font-normal text-ink-3">{publicComments.length}</span>
+            <span className="font-normal text-ink-3">
+              <AnimatedNumber value={publicComments.length} />
+            </span>
           </SectionTitle>
 
           {publicComments.length === 0 && (
             <p className="text-[13px] text-ink-3">No comments on this post yet.</p>
           )}
 
-          {publicComments.map((c) => (
+          <Stagger className="flex flex-col gap-4">
+            {publicComments.map((c) => (
             <div key={c.id} className="flex gap-3">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10.5px] font-semibold text-ink-2">
                 {initials(c.author_name ?? "anon")}
@@ -411,10 +435,30 @@ export function PostDetailView({
                 </p>
               </div>
             </div>
-          ))}
+            ))}
+          </Stagger>
+
+          <AnimatePresence>
+            {posting && !posting.internal && (
+              <FadeRise key="posting" mountAnimation className="flex gap-3 opacity-60">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10.5px] font-semibold text-ink-2">
+                  {initials(founderName)}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <span className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-3">
+                    <strong className="font-semibold text-ink">{founderName}</strong>
+                    <span>· posting…</span>
+                  </span>
+                  <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55] text-ink-body">
+                    {posting.body}
+                  </p>
+                </div>
+              </FadeRise>
+            )}
+          </AnimatePresence>
 
           {internalNotes.length > 0 && (
-            <div className="flex flex-col gap-3 rounded-control border border-[#FDE68A] bg-warn-note p-3">
+            <div className="eu-crossfade flex flex-col gap-3 rounded-control border border-[#FDE68A] bg-warn-note p-3">
               <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-warn">
                 Internal notes · only your team sees these
               </p>
@@ -448,28 +492,35 @@ export function PostDetailView({
                   ? "Only your team sees this note"
                   : "Write a reply voters will see"
               }
-              className={replyTab === "internal" ? "bg-warn-note" : undefined}
+              className={cx(
+                "eu-crossfade",
+                replyTab === "internal" ? "bg-warn-note" : "bg-canvas",
+              )}
             />
             <div className="flex items-center gap-2">
               <Button
                 variant="primary"
                 disabled={pending || !replyBody.trim()}
-                onClick={() =>
+                onClick={() => {
+                  const body = replyBody;
+                  const internal = replyTab === "internal";
+                  setPosting({ body, internal });
+                  setReplyBody("");
+
                   start(async () => {
-                    const res = await reply({
-                      postId: post.id,
-                      body: replyBody,
-                      internal: replyTab === "internal",
-                    });
+                    const res = await reply({ postId: post.id, body, internal });
                     if (res.ok) {
-                      setReplyBody("");
-                      flash(replyTab === "internal" ? "Note saved" : "Reply posted");
+                      flash(internal ? "Note saved" : "Reply posted");
                       router.refresh();
+                      setPosting(null);
                     } else {
+                      // Give the text back rather than losing it.
+                      setPosting(null);
+                      setReplyBody(body);
                       flash(res.error);
                     }
-                  })
-                }
+                  });
+                }}
               >
                 {pending ? <Spinner /> : null}
                 {replyTab === "internal" ? "Save note" : "Reply"}

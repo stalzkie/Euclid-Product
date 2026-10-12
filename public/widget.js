@@ -50,25 +50,51 @@
     ":host { all: initial; }",
     "* { box-sizing: border-box; }",
     ".frame { border: 0; width: 100%; display: block; background: transparent; }",
+    // The panel grows out of the launcher's own corner, so it reads as the
+    // button opening rather than a card arriving from nowhere. Opening is
+    // slower than closing: arriving deserves more attention than leaving.
     ".panel {",
     "  position: fixed; bottom: 84px; width: 420px; max-width: calc(100vw - 32px);",
     "  height: 620px; max-height: calc(100vh - 120px);",
     "  border-radius: 16px; overflow: hidden; background: #fff;",
     "  box-shadow: 0 16px 40px rgba(23,23,26,0.18);",
-    "  opacity: 0; transform: translateY(8px); pointer-events: none;",
-    "  transition: opacity .16s ease, transform .16s ease; z-index: 2147483000;",
+    "  transform-origin: bottom right;",
+    "  opacity: 0; transform: translateY(8px) scale(.98); pointer-events: none;",
+    "  transition: opacity .16s cubic-bezier(.4,0,1,1),",
+    "              transform .16s cubic-bezier(.4,0,1,1);",
+    "  z-index: 2147483000;",
     "}",
-    ".panel[data-open='true'] { opacity: 1; transform: none; pointer-events: auto; }",
+    ".panel[data-side='left'] { transform-origin: bottom left; }",
+    ".panel[data-open='true'] {",
+    "  opacity: 1; transform: none;",
+    "  transition: opacity .25s cubic-bezier(.16,1,.3,1),",
+    "              transform .25s cubic-bezier(.16,1,.3,1);",
+    "}",
+    // Clicks are swallowed for the first 100ms only, so a pointer already
+    // moving towards the panel is not left waiting for the animation.
+    ".panel[data-ready='true'] { pointer-events: auto; }",
     ".launcher {",
     "  position: fixed; bottom: 24px; height: 44px; padding: 0 18px;",
     "  display: inline-flex; align-items: center; gap: 8px; border: 0;",
     "  border-radius: 999px; color: #fff; cursor: pointer;",
     "  font: 500 14px/1 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;",
     "  box-shadow: 0 8px 24px rgba(23,23,26,0.22); z-index: 2147483001;",
+    "  transition: filter .15s cubic-bezier(.2,0,0,1),",
+    "              transform .1s cubic-bezier(.2,0,0,1);",
     "}",
+    ".launcher:hover { filter: brightness(.92); }",
+    ".launcher:active { transform: scale(.97); }",
     ".launcher:focus-visible { outline: 3px solid rgba(26,140,255,.45); outline-offset: 2px; }",
     "@media (max-width: 520px) {",
     "  .panel { left: 16px; right: 16px; width: auto; bottom: 78px; }",
+    "}",
+    // Reduced motion: a plain fade, and nothing scales or travels.
+    "@media (prefers-reduced-motion: reduce) {",
+    "  .panel, .panel[data-open='true'] {",
+    "    transform: none; transition: opacity .12s linear;",
+    "  }",
+    "  .launcher { transition: filter .12s linear; }",
+    "  .launcher:active { transform: none; }",
     "}",
   ].join("\n");
   root.appendChild(style);
@@ -108,6 +134,7 @@
     var panel = document.createElement("div");
     panel.className = "panel";
     panel.setAttribute("data-open", "false");
+    panel.setAttribute("data-side", side);
     panel.style[side] = "24px";
 
     var frame = makeFrame();
@@ -131,11 +158,28 @@
     launcher.lastChild.textContent = label;
 
     var open = false;
+    var readyTimer = null;
+
     function setOpen(next) {
       open = next;
       panel.setAttribute("data-open", String(open));
       launcher.setAttribute("aria-expanded", String(open));
-      if (open) frame.focus();
+
+      if (readyTimer) {
+        window.clearTimeout(readyTimer);
+        readyTimer = null;
+      }
+
+      if (open) {
+        // Focus moves on the first frame, not when the animation ends: a
+        // keyboard user should never have to wait out an entrance.
+        frame.focus();
+        readyTimer = window.setTimeout(function () {
+          panel.setAttribute("data-ready", "true");
+        }, 100);
+      } else {
+        panel.removeAttribute("data-ready");
+      }
     }
 
     launcher.addEventListener("click", function () {

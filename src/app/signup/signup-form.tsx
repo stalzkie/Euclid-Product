@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon, Logo } from "@/components/icons";
 import { Banner, Button, Input, cx } from "@/components/ui";
 import { Spinner } from "@/components/controls";
@@ -159,51 +159,97 @@ export function SignupForm({ mode }: { mode: "signup" | "signin" }) {
 
 /** The four moments of the core loop, scattered around the card. */
 function ProofCards() {
-  const card =
-    "absolute hidden rounded-[14px] border border-line bg-canvas shadow-float lg:flex";
+  const card = "rounded-[14px] border border-line bg-canvas shadow-float flex";
+
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-      <div className={cx(card, "left-[8%] top-[18%] items-center gap-3 px-4 py-3")}>
-        <span className="flex h-11 w-10 flex-col items-center justify-center rounded-[10px] border border-state-bright bg-state-wash text-[12.5px] font-semibold text-state">
-          <Icon name="caretUp" size={11} strokeWidth={2.4} />
-          184
-        </span>
-        <span className="flex flex-col">
-          <span className="text-[13px] font-medium">Export to CSV</span>
-          <span className="text-[11.5px] text-ink-3">62% paying users</span>
-        </span>
-      </div>
+      {/*
+        Two nested elements per card on purpose: the outer one runs the
+        one-time entrance and the inner one runs the endless drift, because
+        both animate `transform` and a single element can only have one.
+      */}
+      <Floating className="left-[8%] top-[18%]" order={0} phase="0s">
+        <div className={cx(card, "items-center gap-3 px-4 py-3")}>
+          <span className="flex h-11 w-10 flex-col items-center justify-center rounded-[10px] border border-state-bright bg-state-wash text-[12.5px] font-semibold text-state">
+            <Icon name="caretUp" size={11} strokeWidth={2.4} />
+            184
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[13px] font-medium">Export to CSV</span>
+            <span className="text-[11.5px] text-ink-3">62% paying users</span>
+          </span>
+        </div>
+      </Floating>
 
-      <div
-        className={cx(
-          card,
-          "left-[6%] top-[52%] items-center gap-[7px] border-ai-line bg-ai-wash px-4 py-[10px] text-[12.5px] font-semibold text-ai-deep",
-        )}
-      >
-        <Icon name="sparkle" size={14} strokeWidth={1.9} />
-        Build Prompt ready for Claude Code
-      </div>
+      <Floating className="left-[6%] top-[52%]" order={1} phase="-1.5s">
+        <div
+          className={cx(
+            card,
+            "items-center gap-[7px] border-ai-line bg-ai-wash px-4 py-[10px] text-[12.5px] font-semibold text-ai-deep",
+          )}
+        >
+          <Icon name="sparkle" size={14} strokeWidth={1.9} />
+          Build Prompt ready for Claude Code
+        </div>
+      </Floating>
 
-      <div
-        className={cx(
-          card,
-          "right-[7%] top-[20%] w-[280px] flex-col gap-1 px-4 py-3 font-mono text-[11.5px] leading-[1.6] text-ink-2",
-        )}
-      >
-        <span className="font-semibold text-ink">## Acceptance criteria</span>
-        <span>- [ ] Export from Settings › Data</span>
-        <span>- [ ] Free plan: CSV only</span>
-        <span>- [ ] Behind flag export_v1</span>
-      </div>
+      <Floating className="right-[7%] top-[20%]" order={2} phase="-3s">
+        <div
+          className={cx(
+            card,
+            "w-[280px] flex-col gap-1 px-4 py-3 font-mono text-[11.5px] leading-[1.6] text-ink-2",
+          )}
+        >
+          <span className="font-semibold text-ink">## Acceptance criteria</span>
+          <span>- [ ] Export from Settings › Data</span>
+          <span>- [ ] Free plan: CSV only</span>
+          <span>- [ ] Behind flag export_v1</span>
+        </div>
+      </Floating>
 
-      <div className={cx(card, "bottom-[16%] right-[9%] items-center gap-3 px-4 py-3")}>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ok-bright text-white">
-          <Icon name="check" size={14} strokeWidth={2.6} />
-        </span>
-        <span className="flex flex-col">
-          <span className="text-[13px] font-medium">Shipped · 184 voters emailed</span>
-          <span className="text-[11.5px] text-ink-3">just now</span>
-        </span>
+      <Floating className="bottom-[16%] right-[9%]" order={3} phase="-4.5s">
+        <div className={cx(card, "items-center gap-3 px-4 py-3")}>
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ok-bright text-white">
+            <Icon name="check" size={14} strokeWidth={2.6} />
+          </span>
+          <span className="flex flex-col">
+            <span className="text-[13px] font-medium">Shipped · 184 voters emailed</span>
+            <span className="text-[11.5px] text-ink-3">just now</span>
+          </span>
+        </div>
+      </Floating>
+    </div>
+  );
+}
+
+/**
+ * One proof card: it arrives once, 60ms behind the one before it, and then
+ * drifts a few pixels up and down forever on its own phase so the four of
+ * them never bob in unison.
+ *
+ * Hidden below 900px, where there is no room for it and the card in the middle
+ * is the only thing worth reading.
+ */
+function Floating({
+  children,
+  className,
+  order,
+  phase,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** Position in the 60ms entrance cascade. */
+  order: number;
+  /** Negative offset into the drift, so each card starts mid-cycle. */
+  phase: string;
+}) {
+  return (
+    <div
+      className={cx("eu-enter-rise absolute hidden lg:block", className)}
+      style={{ animationDelay: `${order * 60}ms` }}
+    >
+      <div className="eu-float" style={{ animationDelay: phase }}>
+        {children}
       </div>
     </div>
   );

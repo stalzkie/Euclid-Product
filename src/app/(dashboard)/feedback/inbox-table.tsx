@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useId, useMemo, useState, useTransition } from "react";
+import { AnimatePresence, m } from "motion/react";
 import { Icon, SearchIcon } from "@/components/icons";
 import {
-  Banner,
   Button,
   Card,
   Input,
@@ -16,6 +16,13 @@ import {
   cx,
 } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import {
+  AnimatedNumber,
+  Collapse,
+  FadeRise,
+  useToast,
+} from "@/components/motion";
+import { dur, ease, spring } from "@/lib/motion/tokens";
 import { ago, plural } from "@/lib/format";
 import { POST_STATUSES, STATUS_LABEL, type PostStatus } from "@/lib/types";
 import type { PostRow } from "@/server/queries";
@@ -62,7 +69,8 @@ export function InboxTable({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
+  const tabThumb = useId();
   const [pending, start] = useTransition();
 
   const rows = useMemo(() => {
@@ -102,10 +110,13 @@ export function InboxTable({
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>, done: string) =>
     start(async () => {
       const res = await fn();
-      setToast(res.ok ? done : (res.error ?? "Something went wrong"));
-      if (res.ok) setChecked(new Set());
+      if (res.ok) {
+        toast(done, { tone: "ok" });
+        setChecked(new Set());
+      } else {
+        toast(res.error ?? "Something went wrong", { tone: "bad" });
+      }
       router.refresh();
-      setTimeout(() => setToast(null), 3500);
     });
 
   const download = () =>
@@ -178,7 +189,9 @@ export function InboxTable({
         </div>
       )}
 
-      {adding && <AddPostForm categories={categories} onDone={() => setAdding(false)} />}
+      <Collapse open={adding}>
+        <AddPostForm categories={categories} onDone={() => setAdding(false)} />
+      </Collapse>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="tablist" aria-label="Status" className="flex flex-wrap gap-[2px] rounded-[9px] bg-muted p-[3px]">
@@ -192,12 +205,22 @@ export function InboxTable({
                 aria-selected={on}
                 onClick={() => setTab(t.value)}
                 className={cx(
-                  "flex h-7 items-center gap-[6px] rounded-[7px] px-[10px] text-[12.5px] font-medium",
-                  on ? "bg-canvas text-ink shadow-seg" : "text-ink-2",
+                  "eu-colors relative flex h-7 items-center gap-[6px] px-[10px] text-[12.5px] font-medium",
+                  on ? "text-ink" : "text-ink-2",
                 )}
               >
-                {t.label}
-                <span className="tnum text-[11.5px] text-ink-3">{t.count}</span>
+                {on && (
+                  <m.span
+                    layoutId={tabThumb}
+                    transition={spring.snappy}
+                    className="absolute inset-0 rounded-[7px] bg-canvas shadow-seg"
+                  />
+                )}
+                <span className="relative">{t.label}</span>
+                <AnimatedNumber
+                  value={t.count}
+                  className="relative text-[11.5px] text-ink-3"
+                />
               </button>
             );
           })}
@@ -220,13 +243,24 @@ export function InboxTable({
             <button
               type="button"
               onClick={() => setSortOpen((v) => !v)}
-              className="flex h-[34px] items-center gap-[6px] rounded-control border border-line-strong bg-canvas px-3 text-[13px] font-medium text-ink hover:bg-subtle"
+              aria-expanded={sortOpen}
+              className="eu-press flex h-[34px] items-center gap-[6px] rounded-control border border-line-strong bg-canvas px-3 text-[13px] font-medium text-ink hover:bg-subtle"
             >
               {SORTS.find((s) => s.value === sort)?.label}
               <Icon name="chevronDown" size={13} strokeWidth={2} />
             </button>
-            {sortOpen && (
-              <div className="absolute right-0 top-[38px] z-20 flex w-[210px] flex-col gap-[2px] rounded-control border border-line bg-canvas p-1 shadow-overlay">
+            {/* A dropdown: scales up from its trigger edge and leaves on
+                opacity alone, because a menu on its way out is already done. */}
+            <AnimatePresence>
+              {sortOpen && (
+              <m.div
+                initial={{ opacity: 0, scale: 0.98, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, transition: { duration: dur.fast, ease: ease.in } }}
+                transition={{ duration: dur.base, ease: ease.out }}
+                style={{ transformOrigin: "top right" }}
+                className="absolute right-0 top-[38px] z-20 flex w-[210px] flex-col gap-[2px] rounded-control border border-line bg-canvas p-1 shadow-overlay"
+              >
                 {SORTS.map((s) => (
                   <button
                     key={s.value}
@@ -236,7 +270,7 @@ export function InboxTable({
                       setSortOpen(false);
                     }}
                     className={cx(
-                      "flex flex-col items-start rounded-[6px] px-2 py-[6px] text-left text-[13px] hover:bg-muted",
+                      "eu-colors flex flex-col items-start rounded-[6px] px-2 py-[6px] text-left text-[13px] hover:bg-muted",
                       s.value === sort ? "font-medium text-ink" : "text-ink-body",
                     )}
                   >
@@ -248,17 +282,18 @@ export function InboxTable({
                     )}
                   </button>
                 ))}
-              </div>
-            )}
+              </m.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
 
       {/* Bulk actions appear only once something is selected. */}
-      {selection.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-control border border-line bg-subtle px-3 py-2">
+      <Collapse open={selection.length > 0}>
+        <FadeRise className="flex flex-wrap items-center gap-2 rounded-control border border-line bg-subtle px-3 py-2">
           <span className="text-[13px] font-medium">
-            {selection.length} selected
+            <AnimatedNumber value={selection.length} live /> selected
           </span>
           <span className="h-5 w-px bg-line" />
           {POST_STATUSES.map((s) => (
@@ -269,7 +304,7 @@ export function InboxTable({
               onClick={() =>
                 act(() => setStatus({ postIds: selection, status: s }), `Moved to ${STATUS_LABEL[s]}`)
               }
-              className="h-7 rounded-[6px] border border-line bg-canvas px-[10px] text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
+              className="eu-press h-7 rounded-[6px] border border-line bg-canvas px-[10px] text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
               {STATUS_LABEL[s]}
             </button>
@@ -296,22 +331,29 @@ export function InboxTable({
             type="button"
             disabled={pending}
             onClick={() => act(() => deletePosts(selection), "Deleted")}
-            className="ml-auto h-7 rounded-[6px] border border-bad-line bg-bad-wash px-[10px] text-[12.5px] font-medium text-bad hover:bg-[#fde8e8] disabled:opacity-50"
+            className="eu-press ml-auto h-7 rounded-[6px] border border-bad-line bg-bad-wash px-[10px] text-[12.5px] font-medium text-bad hover:bg-[#fde8e8] disabled:opacity-50"
           >
             Delete
           </button>
           {pending && <Spinner />}
-        </div>
-      )}
+        </FadeRise>
+      </Collapse>
 
-      {toast && (
-        <Banner tone="ok" icon="check">
-          {toast}
-        </Banner>
-      )}
 
       <div className="overflow-x-auto rounded-card border border-line">
-        <table className="w-full min-w-[880px] border-collapse text-[13.5px]">
+        {/*
+          Changing the filter, the sort or the search dips the body to 40% and
+          brings it back. Rows do not stagger and do not animate into new
+          positions: there can be thousands of them, and a list the founder is
+          scanning has to feel instant rather than choreographed.
+        */}
+        <m.table
+          key={`${tab}:${sort}:${query}`}
+          initial={{ opacity: 0.4 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: dur.fast, ease: ease.out }}
+          className="w-full min-w-[880px] border-collapse text-[13.5px]"
+        >
           <thead>
             <tr className="bg-subtle text-left text-[12.5px] text-ink-2">
               <th scope="col" className="w-9 py-[10px] pl-4 font-medium">
@@ -354,7 +396,10 @@ export function InboxTable({
               return (
                 <tr
                   key={r.id}
-                  className={cx("border-t border-hairline", on ? "bg-state-row" : "bg-canvas")}
+                  className={cx(
+                    "eu-colors border-t border-hairline",
+                    on ? "bg-state-row" : "bg-canvas hover:bg-subtle",
+                  )}
                 >
                   <td className="py-3 pl-4">
                     <button
@@ -379,7 +424,7 @@ export function InboxTable({
                       }
                     >
                       <Icon name="caretUp" size={11} strokeWidth={2.6} />
-                      {r.vote_count}
+                      <AnimatedNumber value={r.vote_count} />
                     </span>
                     {sort === "demand" &&
                       Math.round(r.weighted_score) !== r.vote_count && (
@@ -432,7 +477,7 @@ export function InboxTable({
                     <Link
                       href={`/prompts/new?post=${r.number}`}
                       aria-label={`Build Prompt for ${r.title}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-[7px] text-ai hover:bg-ai-wash"
+                      className="eu-colors flex h-7 w-7 items-center justify-center rounded-[7px] text-ai hover:bg-ai-wash"
                     >
                       <Icon name="sparkle" size={15} strokeWidth={1.9} />
                     </Link>
@@ -441,7 +486,7 @@ export function InboxTable({
               );
             })}
           </tbody>
-        </table>
+        </m.table>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-ink-2">

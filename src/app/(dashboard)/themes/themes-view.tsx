@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { m } from "motion/react";
 import {
   Banner,
   Button,
@@ -14,6 +15,8 @@ import {
 } from "@/components/ui";
 import { Spinner } from "@/components/controls";
 import { ago, signedPct } from "@/lib/format";
+import { Collapse, Shimmer, Stagger } from "@/components/motion";
+import { spring } from "@/lib/motion/tokens";
 import { recluster } from "./actions";
 
 export interface ThemeCard {
@@ -59,6 +62,31 @@ export function ThemesView({
     if (sort === "paying") list.sort((a, b) => b.payingShare - a.payingShare);
     return list;
   }, [themes, sort]);
+
+  /*
+    A re-cluster returns the new clustering, not a diff, so the only way to
+    know which themes changed is to remember what was on screen and compare.
+    Derived from props rather than tracked in an effect: it is rendering
+    state, and it has to be right on the render that first shows the new data.
+  */
+  const fingerprints = useMemo(() => fingerprintThemes(themes), [themes]);
+  const signature = useMemo(() => JSON.stringify(fingerprints), [fingerprints]);
+
+  const [tracked, setTracked] = useState(() => ({
+    signature,
+    fingerprints,
+    changed: new Set<string>(),
+  }));
+
+  if (tracked.signature !== signature) {
+    setTracked({
+      signature,
+      fingerprints,
+      changed: changedThemeIds(tracked.fingerprints, fingerprints),
+    });
+  }
+
+  const changed = tracked.signature === signature ? tracked.changed : new Set<string>();
 
   const fastest = useMemo(
     () => [...themes].sort((a, b) => b.growth - a.growth)[0]?.id,
@@ -108,11 +136,14 @@ export function ThemesView({
         </div>
       </header>
 
-      {message && (
+      {/* The one loop allowed here, and only while the model is working. */}
+      {pending && <Shimmer label="Re-clustering this board" />}
+
+      <Collapse open={Boolean(message)}>
         <Banner tone={failed ? "warn" : "ok"} icon={failed ? "warn" : "check"}>
           {message}
         </Banner>
-      )}
+      </Collapse>
 
       {themes.length > 0 && (
         <div role="radiogroup" aria-label="Sort themes" className="flex flex-wrap gap-2">
@@ -126,7 +157,7 @@ export function ThemesView({
                 aria-checked={on}
                 onClick={() => setSort(s.value)}
                 className={cx(
-                  "h-8 rounded-control border px-3 text-[12.5px] font-medium",
+                  "eu-press h-8 rounded-control border px-3 text-[12.5px] font-medium",
                   on
                     ? "border-ink bg-ink text-white"
                     : "border-line-strong bg-canvas text-ink hover:bg-subtle",
@@ -153,16 +184,25 @@ export function ThemesView({
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {sorted.map((t) => {
             const rising = t.id === fastest && t.growth > 0;
             return (
-              <article
+              /*
+                `layout` moves a card to its new place when the sort changes,
+                rather than the grid re-flowing underneath it. The flash is
+                one-shot and only on the themes a re-cluster actually touched:
+                flashing all of them would say nothing.
+              */
+              <m.article
                 key={t.id}
                 id={t.id}
+                layout
+                transition={spring.smooth}
                 className={cx(
                   "flex flex-col gap-3 rounded-[14px] border p-[18px]",
                   rising ? "border-ai-line" : "border-line",
+                  changed.has(t.id) && "eu-flash-border",
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -226,7 +266,7 @@ export function ThemesView({
                         </span>
                         <Link
                           href={`/posts/${p.number}`}
-                          className="min-w-0 flex-1 truncate text-[13px] text-ink-body no-underline hover:text-ink hover:underline"
+                          className="eu-colors min-w-0 flex-1 truncate text-[13px] text-ink-body no-underline hover:text-ink hover:underline"
                         >
                           {p.title}
                         </Link>
@@ -247,10 +287,10 @@ export function ThemesView({
                     Build Prompt
                   </ButtonLink>
                 </div>
-              </article>
+              </m.article>
             );
           })}
-        </div>
+        </Stagger>
       )}
 
       {!aiReady && (
@@ -261,4 +301,37 @@ export function ThemesView({
       )}
     </>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A fingerprint per theme: how many posts it holds and which ones lead it.
+ * Enough to notice that a re-cluster moved things around, and cheap enough to
+ * compute on every render.
+ */
+function fingerprintThemes(themes: ThemeCard[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const theme of themes) {
+    out[theme.id] = `${theme.posts}:${theme.top.map((p) => p.number).join(",")}`;
+  }
+  return out;
+}
+
+/**
+ * Which themes changed between two clusterings.
+ *
+ * A theme that did not exist before is not a change — on a board's first
+ * clustering every card would flash, which would tell the founder nothing.
+ */
+function changedThemeIds(
+  before: Record<string, string>,
+  after: Record<string, string>,
+): Set<string> {
+  const changed = new Set<string>();
+  for (const [id, fingerprint] of Object.entries(after)) {
+    const was = before[id];
+    if (was !== undefined && was !== fingerprint) changed.add(id);
+  }
+  return changed;
 }

@@ -13,6 +13,7 @@ import {
   Stat,
   StatusChip,
 } from "@/components/ui";
+import { Stagger } from "@/components/motion";
 import { ago, greeting, signedPct } from "@/lib/format";
 import { requireFounder } from "@/server/context";
 import {
@@ -67,6 +68,7 @@ export default async function HomePage() {
       >
         <Stat
           label="New posts"
+          metric="home-new-posts"
           value={kpis.newPosts}
           delta={signedPct(kpis.newPostsDelta)}
           deltaTone={kpis.newPostsDelta >= 0 ? "ok" : "bad"}
@@ -74,6 +76,7 @@ export default async function HomePage() {
         />
         <Stat
           label="Votes cast"
+          metric="home-votes-cast"
           value={kpis.votes}
           delta={signedPct(kpis.votesDelta)}
           deltaTone={kpis.votesDelta >= 0 ? "ok" : "bad"}
@@ -81,12 +84,14 @@ export default async function HomePage() {
         />
         <Stat
           label="Active voters"
+          metric="home-active-voters"
           value={kpis.voters}
           note={`${kpis.payingVoters} paying`}
           className="border-r border-line"
         />
         <Stat
           label="Shipped this month"
+          metric="home-shipped-this-month"
           value={kpis.shippedThisMonth}
           note={`${kpis.votersNotified} voters notified`}
         />
@@ -102,7 +107,7 @@ export default async function HomePage() {
             <SectionTitle id="top-title">Top requests this week</SectionTitle>
             <Link
               href="/feedback"
-              className="flex items-center gap-[6px] text-[13px] font-medium text-ink-2 no-underline hover:text-ink"
+              className="eu-colors flex items-center gap-[6px] text-[13px] font-medium text-ink-2 no-underline hover:text-ink"
             >
               View all
               <Icon name="arrowRight" size={14} strokeWidth={1.8} />
@@ -122,11 +127,17 @@ export default async function HomePage() {
                 }
               />
             ) : (
-              top.map((p, i) => (
+              /*
+                First mount only, and only once the app has hydrated — a list
+                the server already rendered appears in place rather than
+                cascading in front of someone who is mid-read.
+              */
+              <Stagger>
+                {top.map((p, i) => (
                 <Link
                   key={p.id}
                   href={`/posts/${p.number}`}
-                  className={`flex items-center gap-[14px] px-4 py-3 no-underline text-ink hover:bg-subtle ${
+                  className={`eu-colors flex items-center gap-[14px] px-4 py-3 no-underline text-ink hover:bg-subtle ${
                     i < top.length - 1 ? "border-b border-hairline" : ""
                   }`}
                 >
@@ -150,7 +161,8 @@ export default async function HomePage() {
                   </span>
                   <StatusChip status={p.status} />
                 </Link>
-              ))
+                ))}
+              </Stagger>
             )}
           </Card>
 
@@ -161,7 +173,8 @@ export default async function HomePage() {
                 Nothing has happened on this board yet.
               </p>
             ) : (
-              activity.map((a) => (
+              <Stagger>
+                {activity.map((a) => (
                 <div
                   key={a.id}
                   className="flex items-center gap-3 border-b border-hairline px-[2px] py-[10px]"
@@ -184,7 +197,8 @@ export default async function HomePage() {
                     {ago(a.created_at)}
                   </span>
                 </div>
-              ))
+                ))}
+              </Stagger>
             )}
           </div>
         </section>
@@ -211,7 +225,7 @@ export default async function HomePage() {
                     <Link
                       key={p.number}
                       href={`/posts/${p.number}`}
-                      className="rounded-chip border border-line bg-canvas px-2 py-[3px] text-[12px] font-medium text-ink-body no-underline hover:bg-subtle"
+                      className="eu-colors rounded-chip border border-line bg-canvas px-2 py-[3px] text-[12px] font-medium text-ink-body no-underline hover:bg-subtle"
                     >
                       #{p.number} {p.title}
                     </Link>

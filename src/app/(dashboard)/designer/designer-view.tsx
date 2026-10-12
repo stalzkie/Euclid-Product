@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
+import { m } from "motion/react";
 import { Icon } from "@/components/icons";
 import { Banner, Button, Input, SectionTitle, Textarea, cx } from "@/components/ui";
 import { Segmented, Spinner, ToggleRow } from "@/components/controls";
 import { BoardWidget, type WidgetPost } from "@/components/board-widget";
 import { ACCENTS, DEFAULT_DESIGN, PRESETS } from "@/lib/design-presets";
 import type { BoardDesign } from "@/lib/types";
+import { Collapse, FadeRise, IconSwap } from "@/components/motion";
+import { dur, ease, spring } from "@/lib/motion/tokens";
 import { publishDesign } from "./actions";
 import { MatchSite } from "./match-site";
 
@@ -44,6 +47,7 @@ export function DesignerView({
   const [design, setDesign] = useState<BoardDesign>(initial);
   const [badge, setBadge] = useState(initialBadge);
   const [section, setSection] = useState<Section>("look");
+  const deviceThumb = useId();
   const [device, setDevice] = useState<"Desktop" | "Mobile">("Desktop");
   const [dirty, setDirty] = useState(false);
   const [published, setPublished] = useState(false);
@@ -102,10 +106,13 @@ export function DesignerView({
             {boardName}
           </span>
           {dirty && (
-            <span className="flex items-center gap-[6px] rounded-full bg-warn-wash px-[10px] py-[4px] text-[12px] font-medium text-warn">
+            <FadeRise
+              as="span"
+              className="flex items-center gap-[6px] rounded-full bg-warn-wash px-[10px] py-[4px] text-[12px] font-medium text-warn"
+            >
               <span className="h-[6px] w-[6px] rounded-full bg-warn-bright" />
               Unsaved changes
-            </span>
+            </FadeRise>
           )}
         </div>
         <div className="flex gap-2">
@@ -113,7 +120,11 @@ export function DesignerView({
             Discard
           </Button>
           <Button variant="primary" onClick={publish} disabled={pending || (!dirty && published)}>
-            {pending ? <Spinner /> : null}
+            {(pending || published) && (
+              <IconSwap swapKey={pending ? "working" : "done"}>
+                {pending ? <Spinner /> : <Icon name="check" size={14} strokeWidth={2.4} />}
+              </IconSwap>
+            )}
             {published ? "Published" : "Publish changes"}
           </Button>
         </div>
@@ -124,12 +135,12 @@ export function DesignerView({
           {error}
         </Banner>
       )}
-      {published && (
+      <Collapse open={published}>
         <Banner tone="ok" icon="check">
           Published. Every embedded board picks this up on its next load — no redeploy
           needed.
         </Banner>
-      )}
+      </Collapse>
 
       <div className="flex flex-wrap items-start gap-7">
         {/* Controls */}
@@ -399,11 +410,18 @@ export function DesignerView({
                   aria-checked={d === device}
                   onClick={() => setDevice(d)}
                   className={cx(
-                    "h-7 rounded-[7px] px-3 text-[12.5px] font-medium",
-                    d === device ? "bg-canvas text-ink shadow-seg" : "text-ink-2",
+                    "eu-colors relative h-7 px-3 text-[12.5px] font-medium",
+                    d === device ? "text-ink" : "text-ink-2",
                   )}
                 >
-                  {d}
+                  {d === device && (
+                    <m.span
+                      layoutId={deviceThumb}
+                      transition={spring.snappy}
+                      className="absolute inset-0 rounded-[7px] bg-canvas shadow-seg"
+                    />
+                  )}
+                  <span className="relative">{d}</span>
                 </button>
               ))}
             </div>
@@ -418,13 +436,31 @@ export function DesignerView({
               design.theme === "Dark" ? "bg-[#0C0C0E]" : "bg-subtle",
             )}
           >
+            {/*
+              The frame changes width when the device does. A layout animation
+              rather than a width transition, so the reflow inside it is one
+              composited move instead of 320ms of layout work; and keyed on the
+              inline/floating choice so the two layouts crossfade rather than
+              one snapping into the other.
+            */}
+            <m.div
+              layout
+              key={design.mode}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{
+                layout: { duration: dur.slow, ease: ease.standard },
+                duration: dur.moderate,
+                ease: ease.out,
+              }}
+              style={{ width: previewWidth, maxWidth: "100%" }}
+            >
             <BoardWidget
               design={design}
               boardName={boardName}
               posts={posts}
               showBadge={badge}
               preview
-              width={previewWidth}
               identityLabel="leo@fastmail.com"
               changelog={[
                 {
@@ -435,6 +471,7 @@ export function DesignerView({
                 },
               ]}
             />
+            </m.div>
 
             {design.mode === "floating" && (
               <span

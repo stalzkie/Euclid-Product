@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { AnimatePresence } from "motion/react";
 import { Icon } from "@/components/icons";
-import { AiLabel, Banner, Button, Card, EmptyState, cx } from "@/components/ui";
+import { AiLabel, Button, Card, EmptyState, cx } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import { CollapseOut, IconSwap, Stagger } from "@/components/motion";
+import { useToast } from "@/components/motion";
 import { dismissDuplicate, mergePost, type MergeGroup } from "./actions";
 
 /**
@@ -21,7 +24,7 @@ export function MergeQueue({
 }) {
   const router = useRouter();
   const [done, setDone] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const [pending, start] = useTransition();
 
   const key = (source: string, target: string) => `${source}:${target}`;
@@ -35,12 +38,11 @@ export function MergeQueue({
       const res = await fn();
       if (res.ok) {
         setDone((prev) => new Set(prev).add(id));
-        setToast(message);
+        toast(message, { tone: "ok" });
         router.refresh();
       } else {
-        setToast(res.error ?? "Could not merge");
+        toast(res.error ?? "Could not merge", { tone: "bad" });
       }
-      setTimeout(() => setToast(null), 3500);
     });
 
   const total = groups.reduce((a, g) => a + g.members.length, 0);
@@ -58,17 +60,12 @@ export function MergeQueue({
         </div>
         <Link
           href="/feedback"
-          className="flex h-9 items-center gap-[6px] rounded-control border border-line-strong px-[14px] text-[13.5px] font-medium text-ink no-underline hover:bg-subtle"
+          className="eu-press flex h-9 items-center gap-[6px] rounded-control border border-line-strong px-[14px] text-[13.5px] font-medium text-ink no-underline hover:bg-subtle"
         >
           Back to inbox
         </Link>
       </header>
 
-      {toast && (
-        <Banner tone="ok" icon="check">
-          {toast}
-        </Banner>
-      )}
 
       {groups.length === 0 ? (
         <Card>
@@ -87,8 +84,11 @@ export function MergeQueue({
           />
         </Card>
       ) : (
-        groups.map((group) => (
-          <Card key={group.targetId} className="flex flex-col gap-3 p-[18px]">
+        <Stagger className="flex flex-col gap-4">
+          <AnimatePresence initial={false}>
+          {groups.map((group) => (
+          <CollapseOut key={group.targetId}>
+          <Card className="flex flex-col gap-3 p-[18px]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
                 <AiLabel>Likely duplicates</AiLabel>
@@ -118,11 +118,10 @@ export function MergeQueue({
                       group.members.forEach((m) => next.add(key(m.id, group.targetId)));
                       return next;
                     });
-                    setToast(
+                    toast(
                       `Merged ${group.members.length} posts · ${group.combinedVotes} votes combined`,
                     );
                     router.refresh();
-                    setTimeout(() => setToast(null), 3500);
                   })
                 }
               >
@@ -156,8 +155,10 @@ export function MergeQueue({
                       <span className="text-[12px] text-ink-3">{m.votes} votes</span>
                     </span>
                     {settled ? (
-                      <span className="flex items-center gap-[6px] text-[12.5px] font-medium text-ok">
-                        <Icon name="check" size={13} strokeWidth={2.4} />
+                      <span className="eu-crossfade flex items-center gap-[6px] text-[12.5px] font-medium text-ok">
+                        <IconSwap swapKey="merged" size={13}>
+                          <Icon name="check" size={13} strokeWidth={2.4} />
+                        </IconSwap>
                         Merged
                       </span>
                     ) : (
@@ -199,7 +200,10 @@ export function MergeQueue({
               </span>
             )}
           </Card>
-        ))
+          </CollapseOut>
+          ))}
+          </AnimatePresence>
+        </Stagger>
       )}
     </>
   );

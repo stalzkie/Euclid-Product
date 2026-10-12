@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { AnimatePresence, m } from "motion/react";
+import { useId, useState } from "react";
 import { Icon, Logo } from "@/components/icons";
 import { cx } from "@/components/ui";
+import { AnimatedNumber, Stagger, useToast } from "@/components/motion";
+import { dur, ease, spring } from "@/lib/motion/tokens";
 import { resolveTheme } from "@/lib/design-presets";
 import { longDate } from "@/lib/format";
 import { STATUS_LABEL, type BoardDesign, type IdentityMode } from "@/lib/types";
@@ -50,6 +53,8 @@ export function PublicBoardView({
   justVerified: boolean;
 }) {
   const t = resolveTheme(design);
+  const toast = useToast();
+  const tabUnderline = useId();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [posts, setPosts] = useState(initialPosts);
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -68,8 +73,11 @@ export function PublicBoardView({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ board: publicId, postId }),
     });
-    if (!res.ok) setPosts(before);
-    else {
+    if (!res.ok) {
+      // Roll the digits back the way they came, and say why.
+      setPosts(before);
+      toast("That vote did not go through. Try again.", { tone: "bad" });
+    } else {
       const json = (await res.json()) as { voted: boolean; votes: number };
       setPosts((prev) =>
         prev.map((p) => (p.id === postId ? { ...p, voted: json.voted, votes: json.votes } : p)),
@@ -90,38 +98,13 @@ export function PublicBoardView({
   ];
 
   const card = (post: WidgetPost) => (
-    <article
+    <PostCard
       key={post.id}
-      className="flex items-start gap-3 rounded-card border p-3"
-      style={{ borderColor: t.border, background: t.card }}
-    >
-      <button
-        type="button"
-        aria-pressed={post.voted}
-        aria-label={`Vote for ${post.title}`}
-        onClick={() => void vote(post.id)}
-        className="flex h-11 w-10 shrink-0 flex-col items-center justify-center gap-[1px] rounded-chip border text-[12.5px] font-semibold"
-        style={{
-          borderColor: post.voted ? t.accent : t.border,
-          background: post.voted ? t.accent : "transparent",
-          color: post.voted ? t.onAccent : t.fg,
-        }}
-      >
-        <Icon name="caretUp" size={12} strokeWidth={2.4} />
-        {design.showVoteCounts && <span className="tnum">{post.votes}</span>}
-      </button>
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-[13.5px] font-medium" style={{ color: t.fg }}>
-          {post.title}
-        </span>
-        <span className="text-[12px]" style={{ color: t.sub }}>
-          {design.showStatuses && STATUS_LABEL[post.status]}
-          {design.showStatuses && design.showComments && " · "}
-          {design.showComments &&
-            `${post.comments} comment${post.comments === 1 ? "" : "s"}`}
-        </span>
-      </span>
-    </article>
+      post={post}
+      theme={t}
+      design={design}
+      onVote={() => void vote(post.id)}
+    />
   );
 
   return (
@@ -208,13 +191,18 @@ export function PublicBoardView({
                   role="tab"
                   aria-selected={on}
                   onClick={() => setTab(x.id)}
-                  className="-mb-px border-b-2 pb-[10px] text-[13.5px] font-medium"
-                  style={{
-                    borderColor: on ? t.accent : "transparent",
-                    color: on ? t.fg : t.sub,
-                  }}
+                  className="eu-colors relative -mb-px pb-[10px] text-[13.5px] font-medium"
+                  style={{ color: on ? t.fg : t.sub }}
                 >
                   {x.label}
+                  {on && (
+                    <m.span
+                      layoutId={tabUnderline}
+                      transition={spring.snappy}
+                      className="absolute -bottom-px left-0 right-0 h-[2px]"
+                      style={{ background: t.accent }}
+                    />
+                  )}
                 </button>
               );
             })}
@@ -229,7 +217,7 @@ export function PublicBoardView({
                   Nothing suggested yet. Yours would be the first.
                 </p>
               ) : (
-                posts.map(card)
+                <AnimatePresence initial={false}>{posts.map(card)}</AnimatePresence>
               )}
             </div>
             <aside className="flex min-w-0 flex-[1_1_320px] flex-col gap-3">
@@ -267,7 +255,7 @@ export function PublicBoardView({
                     Nothing here yet.
                   </p>
                 ) : (
-                  col.cards.map(card)
+                  <Stagger className="flex flex-col gap-3">{col.cards.map(card)}</Stagger>
                 )}
               </section>
             ))}
@@ -326,5 +314,87 @@ export function PublicBoardView({
         </footer>
       )}
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One idea, on the board's own theme.
+ *
+ * The vote is the signature interaction, so it gets the full sequence: the
+ * press scales the button, the chevron hops three pixels and settles, the fill
+ * crossfades to the board's accent and the count rolls up — all before the
+ * request comes back, because a vote that waits does not feel like a vote.
+ *
+ * `layoutId` is what lets a card move between roadmap columns when its status
+ * changes, rather than vanishing from one and appearing in the next.
+ */
+function PostCard({
+  post,
+  theme,
+  design,
+  onVote,
+}: {
+  post: WidgetPost;
+  theme: ReturnType<typeof resolveTheme>;
+  design: BoardDesign;
+  onVote: () => void;
+}) {
+  const [hop, setHop] = useState(0);
+
+  return (
+    <m.article
+      layout
+      layoutId={post.id}
+      transition={spring.smooth}
+      initial={{ opacity: 0, y: "var(--eu-rise-sm)" }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, transition: { duration: dur.fast, ease: ease.in } }}
+      className="flex items-start gap-3 rounded-card border p-3"
+      style={{ borderColor: theme.border, background: theme.card }}
+    >
+      <button
+        type="button"
+        aria-pressed={post.voted}
+        aria-label={`Vote for ${post.title}`}
+        onClick={() => {
+          if (!post.voted) setHop((n) => n + 1);
+          onVote();
+        }}
+        className={cx(
+          "eu-press flex h-11 w-10 shrink-0 flex-col items-center justify-center gap-[1px]",
+          "rounded-chip border text-[12.5px] font-semibold",
+          "active:scale-[var(--eu-vote-scale)]",
+        )}
+        style={{
+          borderColor: post.voted ? theme.accent : theme.border,
+          background: post.voted ? theme.accent : "transparent",
+          color: post.voted ? theme.onAccent : theme.fg,
+        }}
+      >
+        <m.span
+          key={hop}
+          initial={hop === 0 ? false : { y: 0 }}
+          animate={hop === 0 ? undefined : { y: ["0px", "var(--eu-hop)", "0px"] }}
+          transition={{ duration: dur.hop, ease: ease.out, times: [0, 0.45, 1] }}
+          className="block"
+        >
+          <Icon name="caretUp" size={12} strokeWidth={2.4} />
+        </m.span>
+        {design.showVoteCounts && <AnimatedNumber value={post.votes} live />}
+      </button>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-[13.5px] font-medium" style={{ color: theme.fg }}>
+          {post.title}
+        </span>
+        <span className="text-[12px]" style={{ color: theme.sub }}>
+          {design.showStatuses && STATUS_LABEL[post.status]}
+          {design.showStatuses && design.showComments && " · "}
+          {design.showComments &&
+            `${post.comments} comment${post.comments === 1 ? "" : "s"}`}
+        </span>
+      </span>
+    </m.article>
   );
 }

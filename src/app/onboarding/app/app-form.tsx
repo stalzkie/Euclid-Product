@@ -6,6 +6,9 @@ import { Icon } from "@/components/icons";
 import { OnboardShell } from "@/components/onboarding";
 import { Banner, Button, Input, cx } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import { AnimatePresence, m } from "motion/react";
+import { AnimatedNumber } from "@/components/motion";
+import { dur, spring } from "@/lib/motion/tokens";
 import { saveAppStep } from "../actions";
 
 /** The tools Euclid formats Build Prompts for. */
@@ -87,18 +90,31 @@ export function AppStepForm({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {tools.slice(0, 2).map((t) => (
-              <span
-                key={t}
-                className="rounded-chip border border-ai-line bg-ai-wash px-2 py-[4px] text-[12px] font-medium text-ai-deep"
-              >
-                {t}
-              </span>
-            ))}
-            <span className="text-[12px] text-ink-3">
-              {tools.length
-                ? `Prompts ready for ${tools.length} tool${tools.length === 1 ? "" : "s"}`
-                : "Pick a tool to format prompts for"}
+            {/* The chip labels crossfade as tools are picked; nothing moves. */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {tools.slice(0, 2).map((t) => (
+                <m.span
+                  key={t}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9, transition: { duration: dur.fast } }}
+                  transition={spring.snappy}
+                  className="rounded-chip border border-ai-line bg-ai-wash px-2 py-[4px] text-[12px] font-medium text-ai-deep"
+                >
+                  {t}
+                </m.span>
+              ))}
+            </AnimatePresence>
+            <span className="flex items-center gap-1 text-[12px] text-ink-3">
+              {tools.length ? (
+                <>
+                  Prompts ready for <AnimatedNumber value={tools.length} live /> tool
+                  {tools.length === 1 ? "" : "s"}
+                </>
+              ) : (
+                "Pick a tool to format prompts for"
+              )}
             </span>
           </div>
         </>

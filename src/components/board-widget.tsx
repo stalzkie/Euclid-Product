@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
 import { resolveTheme } from "@/lib/design-presets";
+import {
+  WidgetCount,
+  WidgetMotion,
+  WidgetSpinner,
+  useHeightReveal,
+} from "./widget-motion";
 import { STATUS_LABEL, type BoardDesign, type PostStatus } from "@/lib/types";
 
 /**
@@ -91,8 +97,16 @@ export function BoardWidget({
     Object.fromEntries(posts.map((p) => [p.id, p.voted])),
   );
   const [bumps, setBumps] = useState<Record<string, number>>({});
+  /** One counter per post, bumped on each vote, to replay the chevron hop. */
+  const [hops, setHops] = useState<Record<string, number>>({});
   const [posting, setPosting] = useState(false);
   const [posted, setPosted] = useState<number | null>(null);
+  /*
+    Ideas posted in this session, kept locally so they appear at the top of
+    the list straight away. The parent refetches on its own schedule, and
+    waiting for it would mean posting an idea and seeing nothing happen.
+  */
+  const [mine, setMine] = useState<WidgetPost[]>([]);
   const [error, setError] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -131,6 +145,16 @@ export function BoardWidget({
   // Suggestions belong to the title that produced them.
   const similar = title.trim().length > 3 ? matches : [];
 
+  // The nudge box animates its own height open, so the form never jumps while
+  // someone is typing into it.
+  const similarRef = useHeightReveal(similar.length > 0);
+
+  // Anything the parent now knows about is no longer "mine" to hold on to.
+  const visible = useMemo(() => {
+    const known = new Set(posts.map((p) => p.id));
+    return [...mine.filter((p) => !known.has(p.id)), ...posts];
+  }, [mine, posts]);
+
   const roadmap = useMemo(
     () => ({
       planned: posts.filter((p) => p.status === "planned"),
@@ -145,6 +169,8 @@ export function BoardWidget({
     const on = votes[post.id];
     setVotes((prev) => ({ ...prev, [post.id]: !on }));
     setBumps((prev) => ({ ...prev, [post.id]: (prev[post.id] ?? 0) + (on ? -1 : 1) }));
+    // Voting hops; taking a vote back does not.
+    if (!on) setHops((prev) => ({ ...prev, [post.id]: (prev[post.id] ?? 0) + 1 }));
     try {
       await onVote(post.id);
     } catch {
@@ -164,6 +190,19 @@ export function BoardWidget({
     setPosting(false);
     if (res.ok) {
       setPosted(res.number);
+      setMine((prev) => [
+        {
+          id: `local-${res.number}`,
+          number: res.number,
+          title: title.trim(),
+          body: body.trim(),
+          status: "under_review",
+          votes: 1,
+          comments: 0,
+          voted: true,
+        },
+        ...prev,
+      ]);
       setTitle("");
       setBody("");
       setMatches([]);
@@ -179,9 +218,10 @@ export function BoardWidget({
     { id: "changelog", label: "Changelog", show: design.showChangelog },
   ];
 
-  const row = (post: WidgetPost) => (
+  const row = (post: WidgetPost, options?: { entering?: boolean }) => (
     <div
       key={post.id}
+      className={options?.entering ? "eu-w-rise" : undefined}
       style={{
         display: "flex",
         alignItems: "center",
@@ -201,6 +241,7 @@ export function BoardWidget({
           e.stopPropagation();
           void voteFor(post);
         }}
+        className="eu-w-press"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -219,8 +260,15 @@ export function BoardWidget({
           fontVariantNumeric: "tabular-nums",
         }}
       >
-        <Icon name="caretUp" size={12} strokeWidth={2.4} />
-        {design.showVoteCounts ? countFor(post) : ""}
+        {/*
+          The chevron hops once per vote and not at all on un-vote. Keying it
+          on the hop counter is what replays the keyframes; without that the
+          animation is considered finished and a second vote does nothing.
+        */}
+        <span key={hops[post.id] ?? 0} className={hops[post.id] ? "eu-w-hop" : undefined}>
+          <Icon name="caretUp" size={12} strokeWidth={2.4} />
+        </span>
+        {design.showVoteCounts ? <WidgetCount value={countFor(post)} /> : ""}
       </button>
       <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
         <span
@@ -267,6 +315,12 @@ export function BoardWidget({
         boxShadow: "0 12px 32px rgba(23,23,26,0.08)",
       }}
     >
+      {/*
+        The widget's keyframes, inside its own subtree so they land in the
+        shadow root and can never leak into the host page.
+      */}
+      <WidgetMotion />
+
       <header
         style={{
           display: "flex",
@@ -377,6 +431,7 @@ export function BoardWidget({
             {/* Duplicate nudge */}
             {similar.length > 0 && (
               <div
+                ref={similarRef}
                 style={{
                   display: "flex",
                   flexDirection: "column",
@@ -385,12 +440,21 @@ export function BoardWidget({
                   borderRadius: t.r10,
                   border: `1px solid ${t.border}`,
                   background: t.hover,
+                  overflow: "hidden",
                 }}
               >
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: t.sub }}>
                   Already suggested? Vote instead, it counts more.
                 </span>
-                {similar.map(row)}
+                {/*
+                  Keyed on the set of matches, so a changed result crossfades
+                  instead of swapping. The keyword pass answers first and the
+                  semantic pass replaces it a moment later, and that handover
+                  should not read as a glitch.
+                */}
+                <div key={similar.map((p) => p.id).join()} className="eu-w-fade">
+                  {similar.map((post) => row(post))}
+                </div>
               </div>
             )}
 
@@ -427,7 +491,11 @@ export function BoardWidget({
                 type="button"
                 onClick={submit}
                 disabled={preview || posting || title.trim().length < 3}
+                className="eu-w-press"
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
                   height: 34,
                   padding: "0 14px",
                   marginLeft: identityLabel ? undefined : "auto",
@@ -440,6 +508,12 @@ export function BoardWidget({
                   opacity: title.trim().length < 3 ? 0.55 : 1,
                 }}
               >
+                {posting && <WidgetSpinner color={t.onAccent} />}
+                {!posting && posted !== null && (
+                  <span className="eu-w-fade" style={{ display: "flex" }}>
+                    <Icon name="check" size={14} strokeWidth={2.6} />
+                  </span>
+                )}
                 {posting ? "Posting…" : posted ? "Posted" : design.submitCta}
               </button>
             </div>
@@ -447,6 +521,7 @@ export function BoardWidget({
             {posted && (
               <p
                 role="status"
+                className="eu-w-rise"
                 style={{
                   margin: 0,
                   padding: "8px 10px",
@@ -462,6 +537,7 @@ export function BoardWidget({
             {error && (
               <p
                 role="alert"
+                className="eu-w-rise"
                 style={{
                   margin: 0,
                   padding: "8px 10px",
@@ -488,12 +564,16 @@ export function BoardWidget({
                 Popular ideas
               </span>
             </div>
-            {posts.length === 0 ? (
+            {visible.length === 0 ? (
               <p style={{ margin: 0, fontSize: 12.5, color: t.sub }}>
                 Nothing suggested yet. Yours would be the first.
               </p>
             ) : (
-              posts.slice(0, 8).map(row)
+              visible
+                .slice(0, 8)
+                .map((post) =>
+                  row(post, { entering: post.id.startsWith("local-") }),
+                )
             )}
           </>
         )}
@@ -530,7 +610,7 @@ export function BoardWidget({
                     Nothing here yet.
                   </p>
                 ) : (
-                  roadmap[key].map(row)
+                  roadmap[key].map((post) => row(post))
                 )}
               </div>
             ))}

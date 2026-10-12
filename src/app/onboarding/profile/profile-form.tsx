@@ -6,6 +6,9 @@ import { Icon } from "@/components/icons";
 import { OnboardShell } from "@/components/onboarding";
 import { Banner, Button, Input, Textarea, cx } from "@/components/ui";
 import { Spinner } from "@/components/controls";
+import { AnimatePresence, m } from "motion/react";
+import { CollapseOut } from "@/components/motion";
+import { dur, spring } from "@/lib/motion/tokens";
 import type { StackItem } from "@/lib/types";
 import { detectStack, saveProfileStep } from "../actions";
 
@@ -118,11 +121,13 @@ export function ProfileStepForm({
             {stack.length === 0 ? (
               <span className="text-ink-3">(nothing yet — add your stack)</span>
             ) : (
-              stack.map((s) => (
-                <span key={`${s.kind}-${s.name}`}>
-                  - {s.kind}: <span className="text-ink">{s.name}</span>
-                </span>
-              ))
+              <AnimatePresence initial={false}>
+                {stack.map((s) => (
+                  <CollapseOut key={`${s.kind}-${s.name}`}>
+                    - {s.kind}: <span className="text-ink">{s.name}</span>
+                  </CollapseOut>
+                ))}
+              </AnimatePresence>
             )}
             {conventions.trim() && (
               <>
@@ -196,9 +201,19 @@ export function ProfileStepForm({
       <div className="flex flex-col gap-2">
         <span className="text-[13px] font-medium">Stack</span>
         <div className="flex flex-wrap gap-2">
+          {/*
+            A removed token shrinks away and the ones after it slide up to
+            close the gap, rather than the row snapping to a new arrangement.
+          */}
+          <AnimatePresence initial={false} mode="popLayout">
           {stack.map((s) => (
-            <span
+            <m.span
               key={`${s.kind}-${s.name}`}
+              layout
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: dur.fast } }}
+              transition={spring.smooth}
               className="flex items-center gap-2 rounded-chip border border-line bg-canvas py-[5px] pl-2 pr-[6px] text-[12.5px]"
             >
               <span className="text-ink-3">{s.kind}</span>
@@ -209,12 +224,13 @@ export function ProfileStepForm({
                 onClick={() =>
                   setStack((prev) => prev.filter((x) => !(x.kind === s.kind && x.name === s.name)))
                 }
-                className="flex h-4 w-4 items-center justify-center rounded-full text-ink-3 hover:bg-muted hover:text-bad"
+                className="eu-colors flex h-4 w-4 items-center justify-center rounded-full text-ink-3 hover:bg-muted hover:text-bad"
               >
                 ×
               </button>
-            </span>
+            </m.span>
           ))}
+          </AnimatePresence>
           <button
             type="button"
             onClick={() => setAdding((v) => !v)}

@@ -88,13 +88,11 @@ body {
   line-height: 1.5;
 }
 
-/* The aurora wash — sign-up and onboarding only. */
+/* The aurora wash — sign-up and onboarding only. The three gradients live on
+   the drifting pseudo-elements in the motion block below, so only the flat
+   base colour sits on the element itself. */
 .aurora {
-  background:
-    radial-gradient(60% 90% at 15% 20%, #dcebff 0%, rgba(220, 235, 255, 0) 70%),
-    radial-gradient(55% 80% at 55% 40%, #eadcff 0%, rgba(234, 220, 255, 0) 70%),
-    radial-gradient(60% 90% at 90% 80%, #ffe0ec 0%, rgba(255, 224, 236, 0) 70%),
-    #fbfbfd;
+  background: #fbfbfd;
 }
 
 .tnum { font-variant-numeric: tabular-nums; }
@@ -114,3 +112,361 @@ body {
   background: var(--color-line); border-radius: 999px;
 }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------------------------------------------------------------------
+   Motion v1
+   "Motion has a cause." Things move because the founder acted or because the
+   data changed. Nothing here is decoration, and only the three loops in the
+   motion spec repeat.
+
+   Every duration, easing and distance a component animates comes from the
+   tokens below, which is what makes reduced motion a mode rather than a
+   retrofit: the reduced-motion block at the bottom of this file rewrites the
+   tokens, so distances collapse to zero and fades cap at 120ms without any
+   component knowing about it.
+--------------------------------------------------------------------------- */
+:root {
+  /* Durations */
+  --eu-dur-press: 100ms;     /* press feedback, instant color flips */
+  --eu-dur-fast: 150ms;      /* hover, switch, segmented thumb, tooltip */
+  --eu-dur-base: 200ms;      /* popover, dropdown, toast, tab indicator */
+  --eu-dur-moderate: 250ms;  /* dialog, collapse, widget open, step change */
+  --eu-dur-slow: 320ms;      /* drawer, sidebar collapse, device-width change */
+  --eu-dur-data: 600ms;      /* chart draw, count-up (first view only) */
+  --eu-dur-highlight: 900ms; /* diff tint and the theme border flash fading out */
+
+  /* Easings */
+  --eu-ease-standard: cubic-bezier(0.2, 0, 0, 1);  /* things that move on screen */
+  --eu-ease-out: cubic-bezier(0.16, 1, 0.3, 1);    /* entrances: fast start, long settle */
+  --eu-ease-in: cubic-bezier(0.4, 0, 1, 1);        /* exits */
+  --eu-ease-linear: linear;                        /* progress, shimmer */
+
+  /* Distances. Zeroed under reduced motion, which is how movement stops. */
+  --eu-rise-sm: 4px;
+  --eu-rise-md: 8px;
+  --eu-slide-step: 16px;
+  --eu-knob-travel: 16px;
+
+  /* Scales. Driven to 1 under reduced motion. */
+  --eu-press-scale: 0.98;
+  --eu-vote-scale: 0.96;
+  --eu-hop: -3px;
+}
+
+/* Registered with Tailwind so `ease-eu-out` and friends exist as utilities.
+   `inline` keeps the var reference intact instead of resolving it, so the
+   reduced-motion override still reaches them. */
+@theme inline {
+  --ease-eu-standard: var(--eu-ease-standard);
+  --ease-eu-out: var(--eu-ease-out);
+  --ease-eu-in: var(--eu-ease-in);
+  --ease-eu-linear: var(--eu-ease-linear);
+}
+
+/* ------------------------------------------------------------------------- */
+/* The three allowed loops, plus the two loading indicators                  */
+/* ------------------------------------------------------------------------- */
+
+/* Loading indicators. These survive reduced motion: a spinner that does not
+   spin is not a spinner, and the spec keeps them deliberately. */
+@keyframes eu-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes eu-skeleton {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.eu-spinner {
+  animation: eu-spin 0.8s var(--eu-ease-linear) infinite;
+}
+.eu-skeleton {
+  background: var(--color-muted);
+  animation: eu-skeleton 1.2s ease-in-out infinite;
+}
+
+/* Allowed loop 1 · "AI is working". A 1px pink hairline with a brighter
+   highlight sweeping along it, left to right. The line itself is the element's
+   own background, so there is never a gap where the highlight is not. */
+@keyframes eu-shimmer {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(320%); }
+}
+.eu-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-ai-line);
+}
+.eu-shimmer::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-ai) 0%, transparent) 0%,
+    var(--color-ai) 50%,
+    color-mix(in srgb, var(--color-ai) 0%, transparent) 100%
+  );
+  animation: eu-shimmer 1.4s var(--eu-ease-linear) infinite;
+}
+
+/* Offscreen and hidden-tab loops cost nothing. The Shimmer component sets
+   this from an IntersectionObserver and a visibilitychange listener. */
+.eu-shimmer[data-paused="true"]::after { animation-play-state: paused; }
+
+/* ------------------------------------------------------------------------- */
+/* One-shot highlights                                                       */
+/* ------------------------------------------------------------------------- */
+
+/* A changed line gets a brief pink tint. Opacity on an overlay rather than an
+   animated background-color, so it composites instead of repainting. */
+@keyframes eu-fade-away {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.eu-diff { position: relative; isolation: isolate; }
+.eu-diff::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+  z-index: -1;
+  border-radius: 4px;
+  background: var(--color-ai-wash);
+  pointer-events: none;
+  animation: eu-fade-away var(--eu-dur-highlight) var(--eu-ease-out) forwards;
+}
+
+/* The same idea as a border, for cards whose theme changed after a re-cluster. */
+.eu-flash-border { position: relative; }
+.eu-flash-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--color-ai-line);
+  box-shadow: 0 0 0 3px var(--color-ai-wash);
+  pointer-events: none;
+  animation: eu-fade-away var(--eu-dur-highlight) var(--eu-ease-out) forwards;
+}
+
+/* Allowed loop 2 · the install step waiting for its first ping. */
+@keyframes eu-ping-ring {
+  from { transform: scale(1); opacity: 0.45; }
+  to { transform: scale(2.2); opacity: 0; }
+}
+.eu-ping-ring {
+  animation: eu-ping-ring 1.6s var(--eu-ease-out) infinite;
+}
+
+/* Allowed loop 3 · the onboarding aurora drift and its floating cards. Three
+   gradients on one pseudo-element, each drifting a few percent over a minute.
+   Transform only — `background-position` would repaint the whole layer. */
+@keyframes eu-aurora-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.06); }
+  50% { transform: translate3d(-1.5%, -3%, 0) scale(1.06); }
+}
+@keyframes eu-aurora-drift-alt {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.08); }
+  50% { transform: translate3d(2%, 2.4%, 0) scale(1.08); }
+}
+@keyframes eu-float-y {
+  0%, 100% { transform: translateY(-3px); }
+  50% { transform: translateY(3px); }
+}
+
+.aurora { position: relative; isolation: isolate; }
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  inset: -8%;
+  z-index: -1;
+  pointer-events: none;
+}
+.aurora::before {
+  background:
+    radial-gradient(60% 90% at 15% 20%, #dcebff 0%, rgba(220, 235, 255, 0) 70%),
+    radial-gradient(55% 80% at 55% 40%, #eadcff 0%, rgba(234, 220, 255, 0) 70%);
+  animation: eu-aurora-drift 52s ease-in-out infinite;
+}
+.aurora::after {
+  background: radial-gradient(60% 90% at 90% 80%, #ffe0ec 0%, rgba(255, 224, 236, 0) 70%);
+  animation: eu-aurora-drift-alt 44s ease-in-out infinite;
+}
+
+.eu-float {
+  animation: eu-float-y 6s ease-in-out infinite;
+}
+
+/* The sign-up cards' one entrance, before they settle into their drift. A CSS
+   animation rather than a presence wrapper, so it plays on the first paint of
+   a server-rendered page without the markup shipping at opacity 0. */
+@keyframes eu-enter-rise {
+  from { opacity: 0; transform: translateY(var(--eu-rise-md)); }
+  to { opacity: 1; transform: none; }
+}
+.eu-enter-rise {
+  animation: eu-enter-rise var(--eu-dur-base) var(--eu-ease-out) both;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Control transitions                                                       */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Three classes cover every CSS transition in the app, so no component writes
+  a duration of its own. Colour and press feedback are plain CSS on purpose —
+  Motion is for presence, layout and springs, and a hover state does not need
+  a JavaScript frame loop behind it.
+*/
+
+/* Buttons and anything else that can be pressed. Colour at the hover speed,
+   the press scale at the press speed. No hover lift and no hover shadow: the
+   cursor already says the thing is interactive. */
+.eu-press {
+  transition-property: color, background-color, border-color, opacity, transform;
+  /* Per-property, so colour moves at the hover speed and the press scale at
+     the press speed — in both directions, not just on the way down. */
+  transition-duration:
+    var(--eu-dur-fast), var(--eu-dur-fast), var(--eu-dur-fast),
+    var(--eu-dur-fast), var(--eu-dur-press);
+  transition-timing-function: var(--eu-ease-standard);
+}
+.eu-press:not(:disabled):not([aria-disabled="true"]):active {
+  transform: scale(var(--eu-press-scale));
+}
+/* A disabled control has nothing to report, so it reports nothing. */
+.eu-press:disabled,
+.eu-press[aria-disabled="true"] {
+  transition-property: none;
+}
+
+/* Rows, cards, links, nav items: a colour change on hover, nothing else. */
+.eu-colors {
+  transition-property: color, background-color, border-color, fill, stroke;
+  transition-duration: var(--eu-dur-fast);
+  transition-timing-function: var(--eu-ease-standard);
+}
+
+/* Chips and status pills, which crossfade a little more slowly because a
+   status change is information rather than feedback. */
+.eu-crossfade {
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--eu-dur-base);
+  transition-timing-function: var(--eu-ease-standard);
+}
+
+/* A hover shadow without animating box-shadow: the shadow sits on an overlay
+   and only its opacity moves, so the browser composites instead of repainting
+   a blur every frame. */
+.eu-raise { position: relative; }
+.eu-raise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: var(--shadow-raised);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--eu-dur-fast) var(--eu-ease-standard);
+}
+.eu-raise:hover::after,
+.eu-raise:focus-visible::after { opacity: 1; }
+
+/* Opted into per container rather than set on <html>, so a thread that should
+   follow its own messages does, and nothing else in the app scroll-animates. */
+.eu-smooth-scroll { scroll-behavior: smooth; }
+
+/* ------------------------------------------------------------------------- */
+/* Reduced motion                                                            */
+/* ------------------------------------------------------------------------- */
+
+/*
+  Two triggers, one behaviour: the OS setting, and the in-app switch, which
+  stamps data-reduce-motion on <html> from a cookie so the server renders the
+  same thing the client does. CSS has no way to share one declaration block
+  between a media query and an attribute selector, so the block is written
+  twice; keep the two copies in step.
+
+  Rewriting the tokens removes the movement — distances go to zero, scales go
+  to 1 — while fades survive at the 120ms cap the spec asks for. Only the loops
+  need explicit stopping, and the two loading indicators are spared.
+*/
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --eu-dur-press: 120ms;
+    --eu-dur-fast: 120ms;
+    --eu-dur-base: 120ms;
+    --eu-dur-moderate: 120ms;
+    --eu-dur-slow: 120ms;
+    --eu-dur-data: 120ms;
+    --eu-ease-standard: linear;
+    --eu-ease-out: linear;
+    --eu-ease-in: linear;
+    --eu-rise-sm: 0px;
+    --eu-rise-md: 0px;
+    --eu-slide-step: 0px;
+    --eu-knob-travel: 16px; /* the switch knob must still read as on or off */
+    --eu-press-scale: 1;
+    --eu-vote-scale: 1;
+    --eu-hop: 0px;
+  }
+
+  html, :where(.eu-smooth-scroll) { scroll-behavior: auto !important; }
+
+  .eu-shimmer::after,
+  .eu-ping-ring,
+  .eu-float,
+  .aurora::before,
+  .aurora::after {
+    animation: none !important;
+  }
+
+  /* The shimmer becomes a static pink hairline, not a blank gap. */
+  .eu-shimmer::after { display: none; }
+
+  /* No diff tint and no border flash: show the final, untinted state. */
+  .eu-diff::before,
+  .eu-flash-border::after { display: none; }
+}
+
+/* The in-app switch. It is a founder setting, so it is stamped on a wrapper
+   inside the authenticated layouts rather than on <html> — reading the cookie
+   in the root layout would make every public board render dynamically. Custom
+   properties inherit, so the tokens still reach everything below it. */
+[data-reduce-motion="1"] {
+  --eu-dur-press: 120ms;
+  --eu-dur-fast: 120ms;
+  --eu-dur-base: 120ms;
+  --eu-dur-moderate: 120ms;
+  --eu-dur-slow: 120ms;
+  --eu-dur-data: 120ms;
+  --eu-ease-standard: linear;
+  --eu-ease-out: linear;
+  --eu-ease-in: linear;
+  --eu-rise-sm: 0px;
+  --eu-rise-md: 0px;
+  --eu-slide-step: 0px;
+  --eu-press-scale: 1;
+  --eu-vote-scale: 1;
+  --eu-hop: 0px;
+}
+
+[data-reduce-motion="1"] :where(.eu-smooth-scroll) { scroll-behavior: auto !important; }
+
+[data-reduce-motion="1"] .eu-ping-ring,
+[data-reduce-motion="1"] .eu-float,
+[data-reduce-motion="1"] .aurora::before,
+[data-reduce-motion="1"] .aurora::after {
+  animation: none !important;
+}
+
+[data-reduce-motion="1"] .eu-shimmer::after,
+[data-reduce-motion="1"] .eu-diff::before,
+[data-reduce-motion="1"] .eu-flash-border::after {
+  display: none;
+}
