@@ -5,12 +5,22 @@ import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
 import { PLANS } from "@/lib/plans";
+import { billingEnabled } from "@/lib/polar";
+import { requestStudentVerification } from "@/server/student";
+import { appOrigin } from "@/lib/origin";
 import type { PlanTier } from "@/lib/types";
 
 /**
- * Plan changes. There is no payment provider wired up yet, so this writes the
- * tier directly and says so in the UI — the limits it unlocks are real, the
- * charge is not.
+ * Plan changes.
+ *
+ * With Polar configured this is **not** the way a plan moves: a paid tier is
+ * bought at `/api/billing/checkout` and granted by the webhook, and a
+ * cancellation happens in Polar's customer portal. This action refuses outright
+ * in that case, so there is no second path that can put a workspace on Pro
+ * without a subscription behind it.
+ *
+ * It stays functional when billing is unconfigured, which is how local
+ * development and the test suite exercise the paid tiers without a card.
  */
 
 const Change = z.object({
@@ -21,6 +31,13 @@ const Change = z.object({
 export async function changePlan(input: z.infer<typeof Change>) {
   const parsed = Change.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "Pick a plan." };
+
+  if (billingEnabled()) {
+    return {
+      ok: false as const,
+      error: "Plans are managed through checkout. Use the upgrade button or the billing portal.",
+    };
+  }
 
   const ctx = await requireFounder();
   const db = await supabaseServer();
@@ -93,4 +110,19 @@ export async function deleteEndUser(email: string) {
   });
   revalidatePath("/feedback");
   return error ? { ok: false as const, error: error.message } : { ok: true as const };
+}
+
+/**
+ * Start student verification for the signed-in founder's workspace.
+ *
+ * The address is not trusted and not stored here — it is only somewhere to send
+ * a link. Nothing about the plan changes until that link comes back.
+ */
+export async function verifyStudentEmail(email: string) {
+  const ctx = await requireFounder();
+  const origin = await appOrigin();
+  const result = await requestStudentVerification(ctx.workspace.id, email, origin);
+  if (!result.ok) return { ok: false as const, error: result.error };
+  revalidatePath("/billing");
+  return { ok: true as const, kind: result.kind };
 }

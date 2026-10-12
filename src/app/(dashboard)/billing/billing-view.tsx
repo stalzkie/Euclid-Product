@@ -6,10 +6,17 @@ import { useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
 import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui";
 import { Segmented, Spinner } from "@/components/controls";
+import { useToast } from "@/components/motion";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
 import { longDate } from "@/lib/format";
 import type { PlanTier } from "@/lib/types";
-import { changePlan, deleteEndUser, exportEndUser, renameWorkspace } from "./actions";
+import {
+  changePlan,
+  deleteEndUser,
+  exportEndUser,
+  renameWorkspace,
+  verifyStudentEmail,
+} from "./actions";
 
 /** 14 · Plan and credits. */
 export function BillingView({
@@ -23,6 +30,8 @@ export function BillingView({
   memberCount,
   founderEmail,
   founderName,
+  billing,
+  studentState,
 }: {
   workspaceName: string;
   plan: PlanTier;
@@ -34,12 +43,39 @@ export function BillingView({
   memberCount: number;
   founderEmail: string;
   founderName: string;
+  billing: {
+    /** Whether Polar is configured. False keeps the old direct-write path. */
+    enabled: boolean;
+    /** Whether this workspace has a Polar customer, and so a portal to open. */
+    hasCustomer: boolean;
+    status: string | null;
+    periodEnd: string | null;
+    /** Length of the Polar trial, or null when no trial is configured. */
+    trialDays: number | null;
+    /** Whether a student discount is configured on this deployment. */
+    studentDiscount: boolean;
+  };
+  studentState: {
+    verified: boolean;
+    email: string | null;
+    /** When a current verification lapses, ISO. Null when not verified. */
+    expiresAt: string | null;
+  };
 }) {
   const router = useRouter();
   const [period, setPeriod] = useState<"monthly" | "yearly">(billingPeriod);
   const [name, setName] = useState(workspaceName);
   const [privacyEmail, setPrivacyEmail] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [studentEmail, setStudentEmail] = useState("");
+  // `sent` is local only: the link has gone but nothing has changed server-side
+  // until it is opened, so there is nothing to re-read from the workspace yet.
+  const [student, setStudent] = useState<{
+    verified: boolean;
+    email: string | null;
+    expiresAt: string | null;
+    sent: "auto" | "review" | null;
+  }>({ ...studentState, sent: null });
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -47,8 +83,7 @@ export function BillingView({
   const yearly = period === "yearly";
 
   const flash = (message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 4000);
+    toast(message);
   };
 
   const renewal = new Date(periodStart);
@@ -155,11 +190,6 @@ export function BillingView({
           </p>
         </header>
 
-        {toast && (
-          <Banner tone="ok" icon="check">
-            {toast}
-          </Banner>
-        )}
         {error && (
           <Banner tone="bad" icon="warn">
             {error}
@@ -191,7 +221,19 @@ export function BillingView({
                     } a month · renews ${longDate(renewal.toISOString())}`}
               </span>
             </div>
-            <Button disabled>Manage billing</Button>
+            {/*
+              Disabled until there is a Polar customer to manage: a workspace
+              that has never been through checkout has no portal, and the route
+              would answer 404. The free tier never has one.
+            */}
+            <Button
+              disabled={!billing.enabled || !billing.hasCustomer}
+              onClick={() =>
+                window.location.assign(new URL("/api/billing/portal", window.location.origin))
+              }
+            >
+              Manage billing
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 gap-5 border-t border-hairline pt-4 md:grid-cols-3">
@@ -287,7 +329,25 @@ export function BillingView({
                       isCurrent ? "secondary" : recommended ? "system" : "secondary"
                     }
                     disabled={isCurrent || pending}
-                    onClick={() =>
+                    onClick={() => {
+                      // With Polar configured, buying is a trip to checkout and
+                      // leaving is a trip to the portal. Neither is a server
+                      // action: the plan only moves when the webhook says the
+                      // money moved.
+                      //
+                      // A hard navigation, not `router.push`. Both routes answer
+                      // with a redirect to polar.sh, and the client router
+                      // cannot follow one off-origin — it has to be the browser
+                      // that makes the request. The URL is absolute for the same
+                      // reason it has to be a real navigation.
+                      if (billing.enabled) {
+                        const path =
+                          tier === "free"
+                            ? "/api/billing/portal"
+                            : `/api/billing/checkout?tier=${tier}&period=${period}`;
+                        window.location.assign(new URL(path, window.location.origin));
+                        return;
+                      }
                       start(async () => {
                         setError(null);
                         const res = await changePlan({ plan: tier, period });
@@ -297,26 +357,132 @@ export function BillingView({
                         } else {
                           setError(res.error);
                         }
-                      })
-                    }
+                      });
+                    }}
                   >
                     {pending ? <Spinner /> : null}
                     {isCurrent
                       ? "Current plan"
                       : PLAN_ORDER.indexOf(tier) > PLAN_ORDER.indexOf(plan)
-                        ? `Upgrade to ${spec.name}`
-                        : `Downgrade to ${spec.name}`}
+                        ? // The trial is only promised when one is actually
+                          // configured, and only to a founder who has never
+                          // subscribed — Polar gives a trial once, so offering
+                          // it again to a returning customer would be a lie the
+                          // checkout page then has to correct.
+                          billing.enabled && billing.trialDays && !billing.hasCustomer
+                          ? `Start ${billing.trialDays}-day free trial`
+                          : `Upgrade to ${spec.name}`
+                        : billing.enabled && tier === "free"
+                          ? "Cancel subscription"
+                          : `Downgrade to ${spec.name}`}
                   </Button>
                 </article>
               );
             })}
           </div>
 
-          <Banner tone="state" icon="info">
-            No payment provider is connected yet, so changing plans here switches the
-            limits without charging anything.
-          </Banner>
+          {!billing.enabled ? (
+            <Banner tone="state" icon="info">
+              No payment provider is connected on this deployment, so changing plans here
+              switches the limits without charging anything.
+            </Banner>
+          ) : billing.status === "past_due" ? (
+            <Banner tone="warn" icon="info">
+              A payment failed. Your plan stays active while the card is retried — update
+              it in the billing portal to avoid losing access.{" "}
+              <a className="underline" href="/api/billing/portal">
+                Open the portal
+              </a>
+            </Banner>
+          ) : billing.hasCustomer ? (
+            <Banner tone="state" icon="info">
+              Payments are handled by Polar.{" "}
+              {billing.periodEnd
+                ? `The current period runs to ${new Date(billing.periodEnd).toLocaleDateString()}. `
+                : ""}
+              <a className="underline" href="/api/billing/portal">
+                Invoices, card and cancellation
+              </a>
+            </Banner>
+          ) : (
+            <Banner tone="state" icon="info">
+              Payments are handled by Polar. Upgrading opens a checkout; your plan changes
+              once the payment clears.
+            </Banner>
+          )}
         </section>
+
+        {/* Student discount */}
+        {billing.enabled && billing.studentDiscount ? (
+          <section
+            id="student"
+            aria-labelledby="student-title"
+            className="flex flex-col gap-4 rounded-card border border-line p-[18px]"
+          >
+            <SectionTitle id="student-title">Student discount</SectionTitle>
+
+            {student.verified ? (
+              <Banner tone="ok" icon="check">
+                Verified with {student.email}. The discount is applied at checkout — there
+                is no code to enter. Confirm again by {longDate(student.expiresAt!)} to keep
+                it.
+              </Banner>
+            ) : student.sent === "auto" ? (
+              <Banner tone="state" icon="info">
+                Check your inbox. Opening the link applies the discount; it expires in 24
+                hours.
+              </Banner>
+            ) : student.sent === "review" ? (
+              <Banner tone="state" icon="info">
+                That domain is not one we recognise automatically, which does not mean it
+                is not a university. We have sent it for review and will email you.
+              </Banner>
+            ) : (
+              <>
+                <p className="text-[13px] text-ink-2">
+                  Studying? Verify an email address at your institution and the discount is
+                  applied at checkout automatically — there is no code to enter or share.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="email"
+                    className="max-w-[320px]"
+                    placeholder="you@university.edu"
+                    value={studentEmail}
+                    onChange={(e) => setStudentEmail(e.target.value)}
+                  />
+                  <Button
+                    variant="secondary"
+                    disabled={pending || !studentEmail.trim()}
+                    onClick={() =>
+                      start(async () => {
+                        setError(null);
+                        const res = await verifyStudentEmail(studentEmail);
+                        if (res.ok) {
+                          setStudent({ ...student, sent: res.kind });
+                          flash(
+                            res.kind === "auto"
+                              ? "Verification link sent."
+                              : "Sent for review.",
+                          );
+                        } else {
+                          setError(res.error);
+                        }
+                      })
+                    }
+                  >
+                    {pending ? <Spinner /> : null}
+                    Send verification link
+                  </Button>
+                </div>
+                <p className="text-[11.5px] text-ink-3">
+                  We only use the address to confirm you are at an institution. Verification
+                  lasts a year, then needs confirming again.
+                </p>
+              </>
+            )}
+          </section>
+        ) : null}
 
         {/* Workspace */}
         <section

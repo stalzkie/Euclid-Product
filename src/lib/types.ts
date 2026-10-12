@@ -81,6 +81,17 @@ export interface Workspace {
   usage_period_start: string;
   onboarded_at: string | null;
   created_at: string;
+  /** Polar's ids. Null on every workspace that has never been to checkout. */
+  polar_customer_id: string | null;
+  polar_subscription_id: string | null;
+  /** Polar's status verbatim — `active`, `past_due`, `canceled`, … */
+  subscription_status: string | null;
+  /** End of the paid period. A cancelled plan keeps its tier until this. */
+  current_period_end: string | null;
+  /** The address the student discount was granted against, if any. */
+  student_email: string | null;
+  /** When it was granted. Expiry is computed from this, not stored. */
+  student_verified_at: string | null;
 }
 
 export interface StackItem {

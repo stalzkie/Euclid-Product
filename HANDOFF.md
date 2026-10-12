@@ -48,35 +48,80 @@ Every requirement in the PRD is now built.
 
 ## What is left
 
-1. **One DNS record.** The app is deployed and live on Vercel as
-   `stalwrites/euclid-product`, with functions pinned to `syd1` — the same
-   AWS region as the database. It answers on `euclid-product.vercel.app` for
-   the public board and the widget, but **the dashboard only answers on
-   `app.euclidhq.com`**, because middleware rewrites any other host to a
-   board's custom-domain route. That hostname needs one CNAME at Hostinger:
+1. **DNS is done.** `app.euclidhq.com` has its CNAME at Hostinger
+   (`app CNAME 3687d9a0e68ed4d8.vercel-dns-017.com.`, TTL 300), Vercel reports
+   the domain `configured-correctly`, and the certificate is issued. The
+   dashboard answers there over HTTPS.
 
-   ```
-   app  CNAME  3687d9a0e68ed4d8.vercel-dns-017.com.
-   ```
-
-   Note this is a *per-domain* target, not the generic `cname.vercel-dns.com`.
-   `npx vercel domains verify app.euclidhq.com` re-prints it.
+   Vercel did not mint the certificate on its own after the record appeared —
+   `npx vercel certs issue app.euclidhq.com` was needed to force it. If a
+   future domain sits at a TLS handshake failure while `vercel domains verify`
+   already says `configured_correctly`, that is the command.
 
    The `euclid` project, and `euclidhq.com` itself, serve the marketing site —
    a separate project. Do not deploy this app over it.
 
-2. **No payment processor.** Plans and limits are enforced in code
-   (`src/lib/plans.ts`), but there is no Stripe/Lemon Squeezy integration —
-   plan changes are database edits. The PRD has a pricing table but does not
-   name a processor.
+2. **Billing is built on Polar and wired up in sandbox.** The code is
+   `/api/billing/checkout`, `/api/billing/portal` and `/api/billing/webhook`,
+   with `0011_billing.sql` and `src/lib/polar.ts`. Polar is the merchant of
+   record; the webhook is the only thing that can move a workspace between
+   tiers, and `changePlan` refuses once billing is configured.
 
-3. **Test coverage gaps.** Integration tests cover `/api/public/*`,
+   **Applied to production: migration `0011` is live on the Supabase project**,
+   and the deployment carries the sandbox Polar variables. The sandbox org has
+   four products ($12/mo, $120/yr, $29/mo, $288/yr), an organisation token that
+   never expires, and a webhook at `https://app.euclidhq.com/api/billing/webhook`
+   on format **Raw** and API version **2027-01**.
+
+   Both of those last two matter and neither fails loudly. Picking Discord or
+   Slack format reshapes the payload into something `validateEvent` will not
+   parse, and an API version older than the SDK's import changes field names.
+
+   Verified: the webhook rejects an unsigned POST with 403, and a checkout
+   created with the live token returns the right product and price with
+   `external_customer_id` and `metadata.workspace_id` both carried through —
+   which is how the webhook finds the workspace.
+
+   **Not yet verified: a card payment actually landing.** Nobody has completed
+   a checkout, so no `subscription.*` webhook has ever been delivered and no
+   workspace has moved tier through this path. The deliveries list in Polar is
+   empty.
+
+   **Trial, discounts and the student rate are built.** A 7-day trial is set
+   on all four sandbox products. Two discounts are designed but **not yet
+   created in Polar** (see below). `0012_student.sql` is applied to production:
+   a founder verifies a school address by clicking a mailed link, and the
+   checkout route then applies a codeless student discount — so there is no
+   code to leak. Unrecognised domains route to a human rather than being
+   refused, because most of Europe and Latin America put universities on plain
+   national domains. Verifications lapse after a year.
+
+   **Blocked: the two discounts do not exist in Polar yet.** The dashboard's
+   discount form will not submit under automation, and creating them by API
+   needs `discounts:write`, which the token lacks. Adding the scope hits a
+   "please sign in again" re-authentication gate. One human sign-in unblocks
+   it; `POLAR_DISCOUNT_FIRST_PURCHASE` and `POLAR_DISCOUNT_STUDENT` are unset
+   until then, which safely means "no promotion, panel hidden".
+
+   **The deployment is pointed at sandbox Polar.** Before real customers, swap
+   `POLAR_SERVER` to `production` *and* the four product ids together — they
+   are separate accounts, and mismatched ids make every webhook fail closed
+   with "Unknown Polar product".
+
+3. **`npm run verify` is green again.** It briefly failed on
+   `src/components/sidebar-rail.tsx` (`react-hooks/set-state-in-effect`, a
+   `localStorage` read inside an effect) while the motion/animation work was
+   mid-flight. That has since been fixed by whoever is writing it. Noted only
+   because the rule will catch the same shape again: read storage in a lazy
+   `useState` initialiser, not in an effect that then calls `setState`.
+
+4. **Test coverage gaps.** Integration tests cover `/api/public/*`,
    `/api/mcp`, custom-domain routing and integration delivery. The dashboard
    server actions are covered only by unit tests on their pure logic. There
    is no browser-level end-to-end test (there is `scripts/widget-e2e.mjs`,
    a manual harness).
 
-4. **Two paths never exercised live:** the moderation queue holds nothing on
+5. **Two paths never exercised live:** the moderation queue holds nothing on
    the real board (the integration test covers the code path), and no
    Slack/Discord webhook has actually received a message — the delivery
    tests deliberately use URLs that fail, because a test suite should not

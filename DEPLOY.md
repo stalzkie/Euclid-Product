@@ -130,7 +130,89 @@ email has been delivered through them.
   tests that deliberately use failing URLs, so no webhook has ever actually
   received a message from this code.
 
+## 8. Billing
+
+Polar is the merchant of record. Euclid never sees a card: checkout and the
+customer portal are both Polar's own pages, and this app stores only the
+identifiers needed to tie a workspace to its subscription.
+
+**Four products, because Polar gives a product one billing interval.** Create
+them in the Polar organisation and put their ids in the environment:
+
+| Product | Price | Variable |
+|---|---|---|
+| Euclid Indie — Monthly | $12 / month | `POLAR_PRODUCT_INDIE_MONTHLY` |
+| Euclid Indie — Yearly | $120 / year | `POLAR_PRODUCT_INDIE_YEARLY` |
+| Euclid Pro — Monthly | $29 / month | `POLAR_PRODUCT_PRO_MONTHLY` |
+| Euclid Pro — Yearly | $288 / year | `POLAR_PRODUCT_PRO_YEARLY` |
+
+Then `POLAR_ACCESS_TOKEN` (an organisation access token with `checkouts:write`,
+`customer_sessions:write` and `subscriptions:read`), and `POLAR_WEBHOOK_SECRET`
+from the webhook endpoint.
+
+**Point the webhook at `https://<host>/api/billing/webhook`** and subscribe it
+to the `subscription.*` events. This endpoint is the only thing in the system
+allowed to move a workspace between tiers — `changePlan` refuses outright once
+billing is configured, so a missing or misconfigured webhook does not fail
+loudly, it just means nobody's plan ever changes after they pay.
+
+`POLAR_SERVER` is `sandbox` unless set to exactly `production`. That default is
+deliberate: a deployment that forgets the variable sends money nowhere rather
+than to a live card. Sandbox and production are separate Polar accounts with
+separate products, so **the four product ids must be changed at the same time as
+`POLAR_SERVER`** — mismatched ids make every webhook fail closed with "Unknown
+Polar product", which is the intended behaviour and not a bug to work around.
+
+Without `POLAR_ACCESS_TOKEN` or with any product id missing, `billingEnabled()`
+is false and the billing page falls back to switching plans without charging.
+That is how local development and the tests exercise the paid tiers, and it is
+also what a self-hosted deployment gets.
+
+### Trials, discounts and the student rate
+
+**Trial.** Configured per product in Polar (7 days on all four). The app needs
+no entitlement change — `isEntitled` already counts `trialing` — but set
+`POLAR_TRIAL_DAYS` so the upgrade button can say so. Unset means the button
+promises nothing, which is correct for a deployment whose products have no
+trial. It is only copy; Polar owns the trial itself.
+
+**Launch promotion.** `POLAR_DISCOUNT_FIRST_PURCHASE` is a codeless Polar
+discount applied automatically at checkout. Polar enforces its own start and end
+dates, so an expired promotion is refused there rather than running forever —
+which is why no date is duplicated in this repo.
+
+**Student rate.** `POLAR_DISCOUNT_STUDENT`, also codeless, and that is the
+point: the checkout route applies it for a workspace whose student email has
+been verified, so there is nothing to leak, cap or rotate. Unset hides the
+verification panel entirely.
+
+The verification flow is one link, mailed to the address being claimed:
+
+- A domain that looks academic — a bare `.edu`, or `ac`/`edu`/`sch` under a
+  real two-letter country — gets the link sent to the student directly.
+- Anything else gets the link sent to `STUDENT_REVIEW_EMAIL` (falling back to
+  the address inside `EMAIL_FROM`) for a human to approve. **This is not
+  pedantry:** most of Europe and Latin America put universities on an ordinary
+  national domain — Heidelberg is `uni-heidelberg.de` — and a strict list
+  silently turns those students away.
+- Two-letter domains sold as vanity names (`.io`, `.co`, `.ai`, …) are excluded
+  from the automatic path, or anyone could buy `whatever.ac.io`.
+
+Verifications lapse after a year (`STUDENT_VERIFICATION_DAYS`). Institutions
+let alumni keep an address for life, so a one-time check would be a permanent
+half-price plan. Changing the window is a code change, not a migration — expiry
+is computed from `student_verified_at` rather than stored.
+
+A verified student gets the student discount even when the launch promotion is
+larger on the first invoice. Polar applies one discount per checkout, and the
+student rate is the one that keeps applying.
+
 ## Not built
 
-There is no payment processor. Plans and their limits are enforced in
-`src/lib/plans.ts`, but moving a workspace between plans is a database edit.
+Nothing in the PRD is unbuilt. Two things are worth knowing:
+
+- Polar's organisation must finish its own payout and identity checks before a
+  checkout will complete — that is between you and Polar, not something this
+  repo can configure.
+- Plan *downgrades* happen through Polar's portal and take effect when the paid
+  period ends, which is Polar's behaviour rather than a choice made here.
