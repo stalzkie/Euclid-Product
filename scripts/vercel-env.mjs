@@ -16,6 +16,19 @@ import { spawnSync } from "node:child_process";
 const target = process.argv[2] === "preview" ? "preview" : "production";
 const dry = process.argv.includes("--dry");
 
+/**
+ * `.env.local` points `NEXT_PUBLIC_APP_URL` at localhost, which is right for
+ * this machine and wrong for every deployment: it is baked into the client
+ * bundle, and it is what the install snippets tell founders to load the widget
+ * from. `--app-url https://app.example.com` overrides it on the way out.
+ */
+const appUrlFlag = process.argv.indexOf("--app-url");
+const appUrl = appUrlFlag > -1 ? process.argv[appUrlFlag + 1] : null;
+if (appUrlFlag > -1 && !appUrl?.startsWith("https://")) {
+  console.error("--app-url needs an https:// URL.");
+  process.exit(1);
+}
+
 /** Variables that must never be pushed: they describe this machine. */
 const SKIP = new Set(["TEST_APP_URL", "TEST_SUPABASE_URL", "TEST_SERVICE_ROLE_KEY"]);
 
@@ -74,7 +87,13 @@ console.log(`Target:  ${target}${dry ? "  (dry run, nothing will be written)" : 
 let pushed = 0;
 let skipped = 0;
 
-for (const [name, value] of vars) {
+for (const [name, original] of vars) {
+  const value = name === "NEXT_PUBLIC_APP_URL" && appUrl ? appUrl : original;
+
+  if (name === "NEXT_PUBLIC_APP_URL" && appUrl) {
+    console.log(`  note  ${name} -> ${appUrl}`);
+  }
+
   if (SKIP.has(name)) {
     console.log(`  skip  ${name}  (local only)`);
     skipped += 1;
