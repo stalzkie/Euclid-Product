@@ -55,6 +55,9 @@ export function FadeRise({
   id?: string;
   role?: string;
   "aria-label"?: string;
+  "aria-labelledby"?: string;
+  /** React's own shape: `true` and `"true"` are both idiomatic in JSX. */
+  "aria-hidden"?: boolean | "true" | "false";
   "aria-live"?: "off" | "polite" | "assertive";
   "aria-busy"?: boolean;
 }) {
