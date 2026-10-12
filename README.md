@@ -106,12 +106,28 @@ ranked by payment.
 the embeddings model — thresholds set too high do not fail loudly, they just
 silently stop finding duplicates.
 
+**Never `select("*")` on posts or themes.** Both carry a 1536-dimension
+vector — `posts.embedding`, `themes.centroid` — that is 19 KB a row and that
+no screen displays. `src/server/queries.ts` has explicit column lists; use
+them. The inbox was fetching 352 KB to render 18 titles.
+
+**Queued work is drained twice.** Email and webhook deliveries go into an
+outbox so a slow provider cannot fail the post that caused them, and the
+request that queued the work drains a little of it after its own response has
+gone out (`src/server/dispatch.ts`). The scheduled job is the retry path, not
+the delivery path — which is what keeps a magic link from waiting on a cron.
+
 **A dashboard navigation is one query.** The founder's context — workspace,
 boards, their open-post counts, project profile — arrives in a single embedded
 select, and the session is verified against the project's public key set in
 process rather than at the auth server. Both were round trips on every
 navigation, and against a remote database each is most of a second. Anything
 added to `getFounderContext` is paid for on every screen.
+
+**One widget load is one wave of queries.** `readBoardView` asks for the
+viewer, the posts, that viewer's votes and the changelog together. The votes
+are found by the viewer's cookie key rather than by their row id, which is
+what lets the four overlap instead of queueing behind each other.
 
 **Matching a site's colours is a guess shown to the founder.** The accent, the
 theme and the corner radius are read off whatever CSS the page gives up, and

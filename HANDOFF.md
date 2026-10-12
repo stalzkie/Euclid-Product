@@ -16,7 +16,7 @@ npm run test:integration  # 56 tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at the last commit: **367 unit tests**, **56 integration tests**, lint
+Counts at the last commit: **382 unit tests**, **57 integration tests**, lint
 clean with zero warnings.
 
 ### Requirements against the PRD table
@@ -48,31 +48,47 @@ Every requirement in the PRD is now built.
 
 ## What is left
 
-1. **Deployment.** Nothing is deployed. The app runs only on localhost.
-   There is no `vercel.json`/`Dockerfile`, no host, and `euclidhq.com` DNS
-   currently carries only the Resend email records. Custom domains need a
-   real deployment hostname for founders to CNAME to.
+1. **Deployment.** Nothing is deployed; the app runs only on localhost, and
+   `euclidhq.com` DNS still carries only the Resend records. The code side is
+   ready — `vercel.json` declares both cron schedules, the job and AI routes
+   carry their own `maxDuration`, and **DEPLOY.md** lists every variable and
+   DNS record. What is left needs an account and secrets, so it needs you.
 
-2. **No scheduler is wired.** `/api/jobs/run` and `/api/jobs/digest` exist
-   and work, but nothing calls them on a schedule. They need a cron pointed
-   at them with `CRON_SECRET` in an `Authorization` header once deployed.
-
-3. **No payment processor.** Plans and limits are enforced in code
+2. **No payment processor.** Plans and limits are enforced in code
    (`src/lib/plans.ts`), but there is no Stripe/Lemon Squeezy integration —
    plan changes are database edits. The PRD has a pricing table but does not
    name a processor.
 
-4. **Test coverage gaps.** Integration tests cover `/api/public/*`,
+3. **Test coverage gaps.** Integration tests cover `/api/public/*`,
    `/api/mcp`, custom-domain routing and integration delivery. The dashboard
    server actions are covered only by unit tests on their pure logic. There
    is no browser-level end-to-end test (there is `scripts/widget-e2e.mjs`,
    a manual harness).
 
-5. **Two paths never exercised live:** the moderation queue holds nothing on
+4. **Two paths never exercised live:** the moderation queue holds nothing on
    the real board (the integration test covers the code path), and no
    Slack/Discord webhook has actually received a message — the delivery
    tests deliberately use URLs that fail, because a test suite should not
    own a chat workspace. Connecting one real webhook would close that.
+
+## Speed
+
+A dashboard navigation was 5–10 seconds and is now 0.8–1.9 s; the widget's
+own read was 2.8 s and is now 0.85 s. Measured in production against the live
+database, warm. What is left is close to the floor for this setup: each screen
+is one context query plus its own data, and a round trip to Supabase from this
+machine is 400–650 ms.
+
+**The next real win is deploying in the Supabase project's region.** Those
+same round trips become tens of milliseconds, which would put every screen
+under 200 ms without another line of code.
+
+Things that were tried and rejected: caching the public board row
+(`unstable_cache` + tag invalidation). It halved the widget read again, to
+0.44 s, but the row carries `allowed_domains`, `identity_mode`,
+`anon_vote_limit` and `require_approval` — a cached security policy that a
+write outside the app leaves stale. Three integration tests say those settings
+apply on the next request, and they are right to.
 
 ## Live environment
 
