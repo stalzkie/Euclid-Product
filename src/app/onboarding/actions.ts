@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { slugify } from "@/lib/format";
-import { DEFAULT_DESIGN } from "@/lib/design-presets";
 import type { StackItem } from "@/lib/types";
 
 /**
@@ -74,56 +73,38 @@ export async function saveAppStep(input: z.infer<typeof AppStep>) {
     return { ok: true as const, workspaceId: existing.workspace_id };
   }
 
-  // A fresh workspace, its first board, and an empty project profile.
-  const slug = await uniqueSlug(db, slugify(parsed.data.appName));
+  /*
+    A fresh workspace, its first board, its membership and an empty profile, in
+    one call.
 
-  const { data: workspace, error: wsError } = await db
-    .from("workspaces")
-    .insert({
-      name: parsed.data.appName,
-      slug,
-      plan: "free",
-      app_name: parsed.data.appName,
-      app_url: domain ? `https://${domain}` : null,
-      coding_tools: parsed.data.tools,
-    })
-    .select("id")
-    .single();
-
-  if (wsError || !workspace) {
-    return { ok: false as const, error: wsError?.message ?? "Could not create workspace." };
-  }
-
-  const { error: memberError } = await db.from("workspace_members").insert({
-    workspace_id: workspace.id,
-    user_id: auth.user.id,
-    role: "owner",
-    name:
+    It has to be one call. Creating a workspace from the client's own session
+    cannot work under RLS: reading the new id back needs a membership that does
+    not exist yet, de-duplicating the slug needs to see rows the policies
+    rightly hide, and four separate writes can fail half-way and leave a
+    workspace nobody is a member of — which no policy can see and no founder
+    can delete. See 0013_workspace_bootstrap.sql.
+  */
+  const { data: workspaceId, error: createError } = await db.rpc("create_workspace", {
+    p_name: parsed.data.appName,
+    p_slug: slugify(parsed.data.appName),
+    p_domain: domain || null,
+    p_tools: parsed.data.tools,
+    p_member_name:
       (auth.user.user_metadata?.full_name as string | undefined) ??
       auth.user.email?.split("@")[0] ??
       null,
+    p_board_heading: `What should we build next in ${parsed.data.appName}?`,
   });
-  if (memberError) return { ok: false as const, error: memberError.message };
 
-  await db.from("project_profiles").insert({ workspace_id: workspace.id, stack: [] });
-
-  const { error: boardError } = await db.from("boards").insert({
-    workspace_id: workspace.id,
-    name: "Feature requests",
-    slug: "feature-requests",
-    color: "#1A8CFF",
-    identity_mode: "email",
-    allowed_domains: domain ? [domain] : [],
-    show_badge: true,
-    design: {
-      ...DEFAULT_DESIGN,
-      heading: `What should we build next in ${parsed.data.appName}?`,
-    },
-  });
-  if (boardError) return { ok: false as const, error: boardError.message };
+  if (createError || !workspaceId) {
+    return {
+      ok: false as const,
+      error: createError?.message ?? "Could not create workspace.",
+    };
+  }
 
   revalidatePath("/", "layout");
-  return { ok: true as const, workspaceId: workspace.id };
+  return { ok: true as const, workspaceId: workspaceId as string };
 }
 
 const ProfileStep = z.object({
@@ -254,18 +235,11 @@ export async function detectStack(pasted: string): Promise<
   return { ok: true, stack };
 }
 
-async function uniqueSlug(
-  db: Awaited<ReturnType<typeof supabaseServer>>,
-  base: string,
-): Promise<string> {
-  for (let i = 0; i < 20; i++) {
-    const candidate = i === 0 ? base : `${base}-${i + 1}`;
-    const { data } = await db
-      .from("workspaces")
-      .select("id")
-      .eq("slug", candidate)
-      .maybeSingle();
-    if (!data) return candidate;
-  }
-  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
-}
+/*
+  There was a uniqueSlug() here. It selected from `workspaces` with the
+  founder's session to find a free slug, which RLS answers with nothing for
+  someone who is not yet a member of anything — so it always reported the base
+  slug as free, and two founders naming their app the same thing collided on
+  the unique index. create_workspace() resolves the slug with privileges that
+  can actually see the collisions.
+*/
