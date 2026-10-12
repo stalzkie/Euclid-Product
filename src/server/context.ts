@@ -188,6 +188,20 @@ export async function requireFounder(): Promise<FounderContext> {
   return ctx;
 }
 
+/**
+ * The founder's own board with this id, or null if it is not one of theirs.
+ *
+ * A server action is a network endpoint, so a board id in its arguments is
+ * attacker-controlled. Reads that go through the service-role client have no
+ * RLS behind them to catch that, and would answer for any board in the
+ * database — so they come through here first. The context is already loaded
+ * for the request, which makes this check free.
+ */
+export async function founderBoard(boardId: string): Promise<Board | null> {
+  const ctx = await requireFounder();
+  return ctx.boards.find((b) => b.id === boardId) ?? null;
+}
+
 export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "··";

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireFounder } from "@/server/context";
+import { founderBoard, requireFounder } from "@/server/context";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { refreshRepoSnapshot } from "@/server/repo-context";
 
@@ -15,7 +15,22 @@ export interface RepoStatus {
   lastError: string | null;
 }
 
+/** What a caller who has no business with a board is told about it. */
+const EMPTY_REPO: RepoStatus = {
+  connected: false,
+  repo: null,
+  branch: null,
+  fileCount: 0,
+  truncated: false,
+  fetchedAt: null,
+  lastError: null,
+};
+
 export async function readRepoStatus(boardId: string): Promise<RepoStatus> {
+  // Same as the API keys: a service-role read of a board id that arrived over
+  // the network, so the board is checked against the caller's own first.
+  if (!(await founderBoard(boardId))) return EMPTY_REPO;
+
   const db = supabaseAdmin();
 
   const [{ data: integration }, { data: snapshot }] = await Promise.all([

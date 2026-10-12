@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireFounder } from "@/server/context";
+import { founderBoard, requireFounder } from "@/server/context";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { uuid } from "@/lib/validation";
 import { newApiKey } from "@/server/mcp";
@@ -15,6 +15,10 @@ export interface ApiKeySummary {
 }
 
 export async function listApiKeys(boardId: string): Promise<ApiKeySummary[]> {
+  // Reads below run as the service role, which RLS does not constrain, so the
+  // board has to be shown to be the caller's before anything is read.
+  if (!(await founderBoard(boardId))) return [];
+
   const { data } = await supabaseAdmin()
     .from("api_keys")
     .select("id,name,token_prefix,created_at,last_used_at")
