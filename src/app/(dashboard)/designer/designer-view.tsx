@@ -10,6 +10,7 @@ import { BoardWidget, type WidgetPost } from "@/components/board-widget";
 import { ACCENTS, DEFAULT_DESIGN, PRESETS } from "@/lib/design-presets";
 import type { BoardDesign } from "@/lib/types";
 import { publishDesign } from "./actions";
+import { MatchSite } from "./match-site";
 
 type Section = "look" | "content" | "behavior";
 
@@ -26,6 +27,7 @@ export function DesignerView({
   showBadge: initialBadge,
   badgeRemovable,
   planName,
+  appUrl,
   posts,
 }: {
   boardId: string;
@@ -35,6 +37,7 @@ export function DesignerView({
   showBadge: boolean;
   badgeRemovable: boolean;
   planName: string;
+  appUrl: string | null;
   posts: WidgetPost[];
 }) {
   const router = useRouter();
@@ -146,6 +149,8 @@ export function DesignerView({
 
           {section === "look" && (
             <>
+              <MatchSite appUrl={appUrl} onApply={set} />
+
               <section aria-labelledby="preset-title" className="flex flex-col gap-2">
                 <SectionTitle id="preset-title">Preset</SectionTitle>
                 <div

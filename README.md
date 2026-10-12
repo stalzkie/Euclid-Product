@@ -85,6 +85,9 @@ dashboard  ───────────────────────
 - **`src/components/board-widget.tsx`** — one component serves the designer
   preview, the embed and the hosted page, so what the founder designs is what
   ships.
+- **`src/lib/design-match.ts`** — reads a palette out of a founder's own site
+  so the designer can propose a board that matches it; `src/server/site-palette.ts`
+  is the fetch, and every guard on it.
 - **`src/lib/ai/`** — Build Prompt, the chat assistant's read-only tools,
   clustering, embeddings, and the prompt-injection defenses.
 - **`src/server/`** — data access. `queries.ts` runs as the founder (RLS);
@@ -102,6 +105,18 @@ ranked by payment.
 `src/lib/ai/thresholds.ts`. Re-run `node scripts/calibrate.mjs` after changing
 the embeddings model — thresholds set too high do not fail loudly, they just
 silently stop finding duplicates.
+
+**A dashboard navigation is one query.** The founder's context — workspace,
+boards, their open-post counts, project profile — arrives in a single embedded
+select, and the session is verified against the project's public key set in
+process rather than at the auth server. Both were round trips on every
+navigation, and against a remote database each is most of a second. Anything
+added to `getFounderContext` is paid for on every screen.
+
+**Matching a site's colours is a guess shown to the founder.** The accent, the
+theme and the corner radius are read off whatever CSS the page gives up, and
+the reasoning for each is rendered beside the proposal. Nothing applies until
+the founder says so, and nothing is saved until they publish.
 
 **The duplicate nudge runs twice.** A keyword pass answers immediately, a
 semantic pass replaces it when the embedding returns. A suggestion that lands

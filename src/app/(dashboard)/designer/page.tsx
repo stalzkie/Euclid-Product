@@ -21,6 +21,7 @@ export default async function DesignerPage() {
         showBadge={ctx.board.show_badge}
         badgeRemovable={!plan.badge}
         planName={plan.name}
+        appUrl={ctx.workspace.app_url}
         posts={posts.map((p) => ({
           id: p.id,
           number: p.number,

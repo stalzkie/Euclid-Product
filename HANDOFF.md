@@ -7,7 +7,7 @@ Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
 ## Current state
 
-Everything in the PRD's P0 and P1 is built, plus two of the three P2 items.
+Everything in the PRD is built — all of P0, P1 and P2.
 CI is green on all four jobs.
 
 ```
@@ -16,7 +16,7 @@ npm run test:integration  # 56 tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at the last commit: **282 unit tests**, **56 integration tests**, lint
+Counts at the last commit: **367 unit tests**, **56 integration tests**, lint
 clean with zero warnings.
 
 ### Requirements against the PRD table
@@ -42,36 +42,33 @@ clean with zero warnings.
 | Integrations: Slack/Discord, GitHub/Linear | P1 | Done |
 | Build Prompt: read-only GitHub repo context | P2 | Done |
 | MCP server | P2 | Done |
-| Designer: auto-match host site colours | P2 | **Not started** |
+| Designer: auto-match host site colours | P2 | Done |
+
+Every requirement in the PRD is now built.
 
 ## What is left
 
-1. **Auto-match host site colours** (P2, the only unbuilt requirement).
-   The designer already stores a JSON config and has presets; this would
-   read the founder's `app_url`, pull its palette, and propose a matching
-   board design.
-
-2. **Deployment.** Nothing is deployed. The app runs only on localhost.
+1. **Deployment.** Nothing is deployed. The app runs only on localhost.
    There is no `vercel.json`/`Dockerfile`, no host, and `euclidhq.com` DNS
    currently carries only the Resend email records. Custom domains need a
    real deployment hostname for founders to CNAME to.
 
-3. **No scheduler is wired.** `/api/jobs/run` and `/api/jobs/digest` exist
+2. **No scheduler is wired.** `/api/jobs/run` and `/api/jobs/digest` exist
    and work, but nothing calls them on a schedule. They need a cron pointed
    at them with `CRON_SECRET` in an `Authorization` header once deployed.
 
-4. **No payment processor.** Plans and limits are enforced in code
+3. **No payment processor.** Plans and limits are enforced in code
    (`src/lib/plans.ts`), but there is no Stripe/Lemon Squeezy integration —
    plan changes are database edits. The PRD has a pricing table but does not
    name a processor.
 
-5. **Test coverage gaps.** Integration tests cover `/api/public/*`,
+4. **Test coverage gaps.** Integration tests cover `/api/public/*`,
    `/api/mcp`, custom-domain routing and integration delivery. The dashboard
    server actions are covered only by unit tests on their pure logic. There
    is no browser-level end-to-end test (there is `scripts/widget-e2e.mjs`,
    a manual harness).
 
-6. **Two paths never exercised live:** the moderation queue holds nothing on
+5. **Two paths never exercised live:** the moderation queue holds nothing on
    the real board (the integration test covers the code path), and no
    Slack/Discord webhook has actually received a message — the delivery
    tests deliberately use URLs that fail, because a test suite should not
@@ -115,6 +112,13 @@ pre-commit scan before anything was pushed.
 
 ## Things worth knowing before changing code
 
+- **A dashboard navigation costs one query, and it is easy to undo that.**
+  `getFounderContext` reads the workspace, its boards with their open-post
+  counts and the project profile in a single embedded select, and verifies the
+  session locally against the project's JWKS. Adding a `await db.from(...)` to
+  it is paid for on every screen; the database is remote and each round trip
+  is most of a second. There are measurements in the commit that made this so.
+
 - **This machine's clock is about two minutes ahead of the database's.**
   Tests must not compute "now" locally and compare it against database
   timestamps. One test failed on exactly this.
@@ -134,6 +138,12 @@ pre-commit scan before anything was pushed.
 - **Votes are two numbers.** `vote_count` is a headcount shown to end users;
   `weighted_score` orders the founder's view. This answers the PRD's open
   question without ranking users by what they pay.
+- **The colour matcher fetches a URL the founder supplied.** That makes
+  `src/server/site-palette.ts` a request our server makes to somewhere they
+  choose, so it refuses private addresses, re-checks every redirect hop, and
+  caps what it reads. `tests/unit/site-palette.test.ts` covers each of those;
+  the redirect check in particular was written by removing it and watching a
+  test fail.
 - **The Supabase client is untyped.** There is no generated `Database` type,
   so new tables need no type regeneration — but also get no compile-time
   checking. Row shapes are asserted at the call site.

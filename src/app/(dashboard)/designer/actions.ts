@@ -8,6 +8,7 @@ import { requireFounder } from "@/server/context";
 import { PLANS, boardAllowance } from "@/lib/plans";
 import { slugify } from "@/lib/format";
 import { DEFAULT_DESIGN } from "@/lib/design-presets";
+import { matchSitePalette, type PaletteResult } from "@/server/site-palette";
 
 /**
  * Publishing a design writes the JSON config on the board. The widget fetches
@@ -59,6 +60,25 @@ export async function publishDesign(
   return error
     ? { ok: false as const, error: error.message }
     : { ok: true as const, badgeForced: plan.badge && !showBadge };
+}
+
+/**
+ * Reads the founder's own site and proposes a design that matches it.
+ *
+ * The URL is taken from the workspace rather than from the caller: this makes
+ * a request from our server, and the only address it should ever be pointed at
+ * is the one the founder already told us is theirs.
+ */
+export async function matchAppDesign(): Promise<PaletteResult> {
+  const ctx = await requireFounder();
+  const url = ctx.workspace.app_url?.trim();
+  if (!url) {
+    return {
+      ok: false as const,
+      error: "Add your app's URL on the project profile and this can read its colours.",
+    };
+  }
+  return matchSitePalette(url);
 }
 
 const BoardSettings = z.object({
