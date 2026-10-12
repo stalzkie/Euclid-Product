@@ -1,23 +1,31 @@
 # Where this stands
 
-Written 2026-10-12. Read this first in a new session; `README.md` explains how
-the product works, this explains what state it is in.
+Written 2026-10-12, updated 2026-10-13. Read this first in a new session;
+`README.md` explains how the product works, this explains what state it is in.
 
 Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
 ## Current state
 
-Everything in the PRD is built — all of P0, P1 and P2.
-CI is green on all four jobs.
+Everything in the PRD is built, plus billing and student verification, which
+the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
-npm run verify            # typecheck + lint + 282 unit tests
-npm run test:integration  # 56 tests, needs the app running
+npm run verify            # typecheck + lint + 439 unit tests
+npm run test:integration  # 52 tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at the last commit: **380 unit tests**, **57 integration tests**, lint
-clean with zero warnings.
+Counts at 2026-10-13: **439 unit tests across 20 files**, **52 integration
+tests**, lint clean with zero warnings.
+
+**Thirteen migrations, all applied to the live database.** `0011_billing`,
+`0012_student` and `0013_workspace_bootstrap` were confirmed present in
+production by querying `pg_proc` for `apply_subscription`, `verify_student`
+and `create_workspace`.
+
+Recent commits: `d2c20fe` motion across every screen, `fb3c615` Polar billing
+and the student discount, `3babf4e` the auth code exchange.
 
 ### Requirements against the PRD table
 
@@ -44,7 +52,47 @@ clean with zero warnings.
 | MCP server | P2 | Done |
 | Designer: auto-match host site colours | P2 | Done |
 
-Every requirement in the PRD is now built.
+Every requirement in the PRD is now built. Three things exist that the PRD
+never asked for:
+
+| Addition | State |
+|---|---|
+| Billing through Polar: checkout, portal, webhook | Live in **sandbox** |
+| 7-day trial, launch promotion, student rate | Live in **sandbox** |
+| Student verification by school email | Built, never run end to end |
+
+## Start here
+
+Ordered by what actually blocks a launch. Detail for each is further down.
+
+1. **Flip Polar from sandbox to production.** The live site currently points at
+   sandbox, which is safe only because the sole workspace is the founder's own.
+   Needs: four products recreated in the production org, both discounts
+   recreated, `POLAR_SERVER=production`, and all six ids swapped **together** —
+   sandbox and production are separate accounts, and a mismatched id makes
+   every webhook fail closed with "Unknown Polar product". Polar also has to
+   finish payout/KYC before a real checkout can complete, which is not instant
+   and is worth starting early.
+
+2. **Exercise the integration outbox.** Post on the live board and confirm
+   Discord fires within seconds. `sendTestMessage` and the manual script both
+   call `postToWebhook` directly, so `enqueueIntegrationEvent` ->
+   `integration_outbox` -> `deliverIntegrationEvents` has still never run
+   against a real endpoint. `drainAfterResponse` should deliver immediately; if
+   it waits for the daily cron, that is a real finding and nothing tests it.
+
+3. **Send one student verification email.** Same shape of gap: the redeem path
+   works in production, the mailing leg has never run.
+
+4. **Browser E2E.** The expensive part is already built — the CI integration
+   job stands up a local Supabase, applies migrations, builds and runs the app.
+   Playwright is a job extension, not new infrastructure. Highest-value specs:
+   the widget mounting in Shadow DOM (never exercised by anything —
+   `scripts/widget-e2e.mjs` is a `fetch` script that never opens a page), then
+   post/vote/comment as an end user, then signup -> dashboard.
+
+5. **On Pro, change `/api/jobs/run` to `*/10 * * * *`.** Hobby caps a cron at
+   daily and fails the deploy if one would run more often.
 
 ## What is left
 
@@ -82,38 +130,70 @@ Every requirement in the PRD is now built.
    `external_customer_id` and `metadata.workspace_id` both carried through —
    which is how the webhook finds the workspace.
 
-   **Not yet verified: a card payment actually landing.** Nobody has completed
-   a checkout, so no `subscription.*` webhook has ever been delivered and no
-   workspace has moved tier through this path. The deliveries list in Polar is
-   empty.
+   **A real checkout has now completed, end to end.** A sandbox card payment
+   moved the Driftnote workspace to Pro through the webhook. Polar delivered
+   `subscription.created`, `subscription.active` and `subscription.updated`,
+   all answered **200**, and the row ended up exactly right:
+
+   ```
+   plan=pro  billing_period=monthly  subscription_status=active
+   polar_customer_id=0ef97459…  polar_subscription_id=fa895761…
+   current_period_end=2026-11-12T15:21:52.815721Z   (matches Polar exactly)
+   ```
+
+   The three events arriving for one state change is normal and is why
+   `apply_subscription` is idempotent — it applied the same state three times
+   with no retries and no drift.
 
    **Trial, discounts and the student rate are built.** A 7-day trial is set
-   on all four sandbox products. Two discounts are designed but **not yet
-   created in Polar** (see below). `0012_student.sql` is applied to production:
+   on all four sandbox products; `POLAR_TRIAL_DAYS` only drives the button
+   copy, since Polar owns the trial itself and `isEntitled` already counts
+   `trialing`. `0012_student.sql` is applied to production:
    a founder verifies a school address by clicking a mailed link, and the
    checkout route then applies a codeless student discount — so there is no
    code to leak. Unrecognised domains route to a human rather than being
    refused, because most of Europe and Latin America put universities on plain
    national domains. Verifications lapse after a year.
 
-   **Blocked: the two discounts do not exist in Polar yet.** The dashboard's
-   discount form will not submit under automation, and creating them by API
-   needs `discounts:write`, which the token lacks. Adding the scope hits a
-   "please sign in again" re-authentication gate. One human sign-in unblocks
-   it; `POLAR_DISCOUNT_FIRST_PURCHASE` and `POLAR_DISCOUNT_STUDENT` are unset
-   until then, which safely means "no promotion, panel hidden".
+   **Both discounts exist in sandbox and are wired up.**
+
+   | Discount | Code | Amount | Duration | Ends |
+   |---|---|---|---|---|
+   | Launch 20% | none | -20% | once | 2026-11-11T16:00Z |
+   | Student | none | -50% | forever | never |
+
+   Neither has a code, by design: the checkout route picks one and passes
+   `discount_id`, so nothing is typed in and nothing can be shared. Verified
+   against the live sandbox API — a Pro Monthly checkout carrying the promo
+   returns $29.00 less $5.80 = $23.20.
+
+   Getting them created was unpleasant and is worth recording. The dashboard's
+   discount form ignores synthetic typing: values must be set through the
+   native `HTMLInputElement.value` setter with an `input` event dispatched, and
+   Radix dropdowns need the `[role="option"]` element clicked directly rather
+   than keyboard navigation, which overshoots. The API would have been easier
+   but needs `discounts:write`, and **every token operation — create as well as
+   update — is behind a "please sign in again" gate** unless the browser
+   session is minutes old.
+
+   Reading ids back needed neither: `fetch` from the dashboard's own page with
+   `credentials: "include"` reuses the session cookie against
+   `sandbox-api.polar.sh`.
 
    **The deployment is pointed at sandbox Polar.** Before real customers, swap
    `POLAR_SERVER` to `production` *and* the four product ids together — they
    are separate accounts, and mismatched ids make every webhook fail closed
    with "Unknown Polar product".
 
-3. **`npm run verify` is green again.** It briefly failed on
-   `src/components/sidebar-rail.tsx` (`react-hooks/set-state-in-effect`, a
-   `localStorage` read inside an effect) while the motion/animation work was
-   mid-flight. That has since been fixed by whoever is writing it. Noted only
-   because the rule will catch the same shape again: read storage in a lazy
-   `useState` initialiser, not in an effect that then calls `setState`.
+3. **Student verification has never been run end to end.** The code is there
+   and unit-tested — `src/lib/student.ts`, `src/server/student.ts`,
+   `/api/billing/student` — and the route correctly bounces a bogus token to
+   `/billing?student=failed` in production. But no verification email has ever
+   been sent, so the `email_outbox` -> `sendQueuedEmails` leg of it is
+   unproven. Sending one to a real address is the check.
+
+   Note the panel only appears when `POLAR_DISCOUNT_STUDENT` is set, so on a
+   deployment without it this is invisible rather than broken.
 
 4. **Test coverage gaps.** Integration tests cover `/api/public/*`,
    `/api/mcp`, custom-domain routing and integration delivery. The dashboard
@@ -121,11 +201,25 @@ Every requirement in the PRD is now built.
    is no browser-level end-to-end test (there is `scripts/widget-e2e.mjs`,
    a manual harness).
 
-5. **Two paths never exercised live:** the moderation queue holds nothing on
-   the real board (the integration test covers the code path), and no
-   Slack/Discord webhook has actually received a message — the delivery
-   tests deliberately use URLs that fail, because a test suite should not
-   own a chat workspace. Connecting one real webhook would close that.
+5. **A real Discord webhook has now received messages.** On 2026-10-13 all
+   three shapes were delivered to a live webhook and accepted with `204 No
+   Content`: the test message, a `post.created`, and a `post.status_changed`.
+   The payloads came from `chatPayload` itself rather than being hand-written,
+   so this exercised the real builder and the real allow-list.
+
+   **What it did not prove:** the outbox. `sendTestMessage` — and the script
+   used here — call `postToWebhook` directly, so `enqueueIntegrationEvent` ->
+   `integration_outbox` -> `deliverIntegrationEvents` is still unexercised
+   against a real endpoint. Posting on the live board is what would close that;
+   `drainAfterResponse` should deliver within seconds rather than waiting for
+   the daily cron, and if it does not, that is a real finding.
+
+   Slack has still never received anything. Its payload is a different shape
+   (`blocks` and mrkdwn, not `embeds`), so Discord working says nothing about
+   it.
+
+6. **The moderation queue holds nothing on the real board.** The integration
+   test covers the code path; no real post has ever been held for approval.
 
 ## Speed
 
@@ -151,7 +245,7 @@ apply on the next request, and they are right to.
 
 The Supabase project is `ummyxqucomjftlreejxu` (`euclid-product`).
 
-**Ten migrations are applied to the live database.** They were applied by
+**Thirteen migrations are applied to the live database.** They were applied by
 hand through the Supabase SQL editor, because there is no linked CLI and no
 database password available in this environment. `supabase/migrations/`
 matches what is live.
@@ -162,12 +256,33 @@ matches what is live.
 - `0008_custom_domain` — domain verification columns and `board_for_domain`
 - `0009_repo_snapshots` — GitHub file listings
 - `0010_api_keys` — MCP keys
+- `0011_billing` — Polar ids on `workspaces`, and `apply_subscription`
+- `0012_student` — student columns, `student_verifications`, `verify_student`
+- `0013_workspace_bootstrap` — `create_workspace`, because onboarding could not
+  bootstrap an owner under RLS
+
+To confirm what is live rather than trusting this list:
+
+```sql
+select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in ('apply_subscription', 'verify_student', 'create_workspace');
+```
 
 **Applying a migration from this environment:** open the Supabase SQL
 editor, then set the Monaco model value directly from the browser tool
 (`window.monaco.editor.getModels()[0].setValue(sql)`) and click Run. Do not
 paste SQL through the Windows clipboard — it mangles characters, which is
-how seven rows of mojibake got into the database earlier.
+how seven rows of mojibake got into the database earlier. Strip non-ASCII from
+the SQL first: an em dash in a comment is enough to trip it.
+
+Two quirks of that editor, both of which cost time:
+
+- `setValue` on a **freshly opened** editor can be lost before React registers
+  it. Wait ~1s after setting, then click Run, and check the model length first.
+- Ctrl+Enter does not always run. Clicking the Run button does.
+- The results grid is virtualised, so reading it back needs a TreeWalker over
+  text nodes rather than a cell selector. Screenshots of that tab time out.
 
 Changes made to live data while building:
 
@@ -178,6 +293,12 @@ Changes made to live data while building:
 - `EUCLID_SECRET` and `CRON_SECRET` were generated into `.env.local`.
 - Resend DNS is verified on Hostinger; one real email was delivered.
 - The weekly digest job was run once and produced a real recommendation.
+- The Driftnote workspace now carries a **real sandbox Polar subscription**
+  (`polar_subscription_id=fa895761…`). It is sandbox money, but the row is
+  real, and a production flip should expect to reconcile or clear it.
+- A real Discord webhook received three messages on 2026-10-13. If that webhook
+  still exists it is a live credential; the URL was shared in chat and should
+  be rotated.
 
 `.env.local` holds the real keys and is **not** committed. `.env.example`
 holds placeholders only — it briefly contained real keys and was caught by a
@@ -221,6 +342,36 @@ pre-commit scan before anything was pushed.
   so new tables need no type regeneration — but also get no compile-time
   checking. Row shapes are asserted at the call site.
 
+- **Billing has exactly one way in.** `apply_subscription` is the only thing
+  that can move a workspace between tiers, it is `security definer` and granted
+  to `service_role` alone, and `changePlan` refuses outright once
+  `billingEnabled()` is true. If you add a second path, the first thing you
+  lose is the guarantee that a plan matches a payment.
+
+- **Entitlement reads the product id, never the amount or the status alone.**
+  `planForProduct` fails closed on an unknown id — a production id reaching a
+  sandbox deployment must not resolve to a tier. `isEntitled` deliberately
+  counts `past_due` as entitled, because Polar retries a failed card for days
+  and taking a founder's boards offline over an expired card would punish them
+  for something their bank usually fixes.
+
+- **Blank env vars are not absent env vars.** A `.env` written as `FOO=` gives
+  `""`, not `undefined`. An early version of `planForProduct` matched an empty
+  product id against a blank product env and granted Indie to nobody's
+  purchase. Every id getter guards for it and a test covers it.
+
+- **Anything comparing a stored timestamp to "now" takes `now` as a
+  parameter.** This machine's clock runs about two minutes ahead of the
+  database's. `studentVerificationActive` does this, and tolerates a
+  verification stamped slightly in the future for the same reason.
+
+- **`FadeRise` forwards unknown props through a `...aria` rest spread.**
+  TypeScript does not excess-property-check hyphenated JSX attributes, so an
+  undeclared `aria-labelledby` both compiles and works. The sign-in card
+  depends on exactly that for its accessible name. If anyone replaces the rest
+  spread with explicit props, that name disappears silently — which is why the
+  attribute is declared on the prop type even though nothing enforces it.
+
 ## Testing conventions
 
 Tests are checked by mutation, not just written. Before trusting a test,
@@ -236,8 +387,27 @@ Unit tests live in `tests/unit` and need nothing running. Integration tests
 live in `tests/integration`, drive real HTTP against a real database, and
 skip rather than fail when nothing is up.
 
-## Known assumption to confirm with the user
+## Decisions the founder has confirmed
 
-Integrations are gated to the paid plans (`integrations: false` on free in
-`src/lib/plans.ts`). The PRD's pricing table does not mention integrations,
-so this was my call, not theirs.
+**Integrations stay paid-only.** `integrations: false` on free in
+`src/lib/plans.ts`. The PRD's pricing table does not mention integrations, so
+this started as my assumption; confirmed on 2026-10-13. Slack, Discord, GitHub
+and Linear are an Indie/Pro feature — the most felt one for an audience that
+lives in chat, and so a concrete reason to upgrade.
+
+**Chat is not a v1 headline.** The v1 story is widget -> board -> Build Prompt
+-> MCP -> shipped, which needs no third-party setup at all. Slack and Discord
+stay built but unpromoted: discoverable in `/install#integrations`, not in
+onboarding.
+
+Worth being clear about what the MCP server already is, because it is easy to
+look at the board and think a tracker is still missing. It is not: `list_requests`,
+`get_request`, `get_build_prompt` and `mark_shipped`, scoped to one board by a
+hashed `euc_` key, is the "our own tracker a coding agent can drive" idea,
+already shipped as P2.
+
+The gap chat fills that MCP does not is **push**. MCP is pull — an agent asks
+when it happens to run. Nothing currently tells a founder that feedback
+arrived. If that becomes a problem before chat is promoted, the cheap answer is
+email: `email_outbox` and `sendQueuedEmails` already exist, so it is a job
+rather than a new integration surface.

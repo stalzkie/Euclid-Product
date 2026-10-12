@@ -12,7 +12,7 @@ The Supabase project is `ummyxqucomjftlreejxu`. All migrations in
 `supabase/migrations/` are applied to it. A deployment points at the same
 project — there is nothing to migrate at deploy time.
 
-If you ever stand up a second environment, apply `0001` … `0010` in order
+If you ever stand up a second environment, apply `0001` … `0013` in order
 through the Supabase SQL editor. Do not paste SQL through the Windows
 clipboard; see HANDOFF.md for why.
 
