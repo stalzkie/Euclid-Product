@@ -66,6 +66,10 @@ never asked for:
 | 7-day trial, launch promotion, student rate | Live in **sandbox** |
 | Student verification by school email | Built, never run end to end |
 
+**`SESSION-2026-10-13.md`** is the log of the day Polar went to production:
+what was done, what is still open, and the traps that cost time. It also
+carries the one thing currently blocking payments — two missing token scopes.
+
 ## Start here
 
 Ordered by what actually blocks a launch. Detail for each is further down.
