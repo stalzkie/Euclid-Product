@@ -11,6 +11,36 @@ descriptions below are what is actually configured, not what was intended.
 
 ---
 
+## Status, 2026-10-13
+
+Polar has **approved** the account. Since then:
+
+- [x] **Eight products** created in the production org.
+- [x] **Two discounts** created — Launch 20% (once, ends Nov 11) and Student
+      (50%, forever), both codeless.
+- [x] **Webhook endpoint** created at `https://app.euclidhq.com/api/billing/webhook`,
+      format raw, **API version 2027-01**, all **13 events** including
+      `order.paid` and `order.refunded`.
+- [x] All ten ids collected.
+- [ ] **`POLAR_ACCESS_TOKEN` value** — a token named `Euclid-Production`
+      exists but Polar shows a token's value only once, at creation, so only
+      the founder has it.
+- [ ] The environment swap and the first real purchase.
+
+Two things caught while doing it, both of which would have failed silently:
+
+- **A new webhook endpoint defaults to API version `2026-10`**, while the app
+  imports `@polar-sh/sdk/2027-01`. Field names differ between versions, so the
+  endpoint was patched to `2027-01`. Check this on any endpoint anyone creates
+  later; the dashboard does not draw attention to it.
+- **The date picker works in local time.** Choosing 11 November stored
+  `2026-11-10T16:00:00Z`, because the browser is UTC+8. The launch promotion
+  therefore ends about a day earlier than the sandbox one did
+  (`2026-11-11T16:00Z`). Immaterial for a promotion, but worth knowing before
+  anyone sets a deadline that matters.
+
+---
+
 ## 0. Before anything: Polar has to approve the account
 
 As of 2026-10-13 the production org at `polar.sh/dashboard/euclid` shows, under
