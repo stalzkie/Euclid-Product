@@ -1,5 +1,6 @@
 import { repoSection, type RepoSnapshot } from "./repo";
 import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { MODEL_STRONG, estimateTokens, requireAnthropic } from "./client";
 import {
@@ -119,9 +120,21 @@ export async function generateDraft(input: GenerateInput): Promise<PromptDraft> 
     max_tokens: 16000,
     system: SYSTEM,
     thinking: { type: "adaptive" },
-    messages: [{ role: "user", content: buildUserTurn(input, spec.repoAware) }],
+    messages: [{ role: "user", content: userContent(input, spec.repoAware) }],
     output_config: { format: zodOutputFormat(Draft) },
   });
+
+  // Same reason as the usage line in the assistant: a Build Prompt is the
+  // other half of what a plan's allowance actually costs, and without this
+  // nothing anywhere records it. `cache_read` is expected to be zero on a
+  // first generation and non-zero on a refinement — that is the breakpoint in
+  // `userContent` doing its job.
+  const u = response.usage;
+  console.info(
+    `[euclid] build-prompt in=${u.input_tokens} out=${u.output_tokens} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} ` +
+      `cache_read=${u.cache_read_input_tokens ?? 0}`,
+  );
 
   const draft = response.parsed_output;
   if (!draft) {
@@ -132,7 +145,53 @@ export async function generateDraft(input: GenerateInput): Promise<PromptDraft> 
   return repairFields(draft);
 }
 
-function buildUserTurn(input: GenerateInput, repoAware: boolean): string {
+/**
+ * The user turn as content blocks, with the cache breakpoint on the stable
+ * half — always, including the first generation.
+ *
+ * The breakpoint pays off on a refinement, and the first generation is what
+ * writes the cache for it to read. Writing it is nearly free: the premium is
+ * a quarter of the base rate, which on a measured 1,811-token prefix is about
+ * $0.0014, while each later read saves about $0.0049. One refinement makes it
+ * worth 3.5x what it cost, so it only has to happen a little over a quarter
+ * of the time — and refining a brief is a headline feature, not a rare path.
+ *
+ * (This first skipped the breakpoint on a one-shot generation, on the theory
+ * that it would pay a write premium for a prefix nothing reads back. The
+ * measurement says the premium is far too small for that to be worth
+ * optimising, and skipping it pushed the saving one refinement further away.)
+ */
+function userContent(
+  input: GenerateInput,
+  repoAware: boolean,
+): Anthropic.TextBlockParam[] {
+  const { stable, refinement } = buildUserTurn(input, repoAware);
+  const stableBlock: Anthropic.TextBlockParam = {
+    type: "text",
+    text: stable,
+    cache_control: { type: "ephemeral" },
+  };
+
+  return refinement
+    ? [stableBlock, { type: "text", text: refinement }]
+    : [stableBlock];
+}
+
+/**
+ * The user turn, split where it stops being stable.
+ *
+ * Everything about the request, the demand behind it, the project profile,
+ * the rules file and the repo listing is the same on every refinement of the
+ * same brief — it is only the instruction at the end that changes. Returning
+ * the two separately lets the call site put a cache breakpoint between them,
+ * so a founder who refines a brief four times pays full price for that
+ * context once instead of four times. It is the largest part of the request
+ * by far when a rules file or a repo listing is included.
+ */
+function buildUserTurn(
+  input: GenerateInput,
+  repoAware: boolean,
+): { stable: string; refinement: string | null } {
   const { post, demand, profile, includes } = input;
   const parts: string[] = [];
 
@@ -210,15 +269,16 @@ Use these paths when they fit. This is a file listing only — ` +
     }
   }
 
-  if (input.refinement && input.previous) {
-    parts.push(
-      `REFINEMENT: the founder asked for this change to the previous brief — ` +
+  // Deliberately not pushed onto `parts`: this is the volatile tail, and
+  // keeping it out of the stable block is the whole point of the split.
+  const refinement =
+    input.refinement && input.previous
+      ? `REFINEMENT: the founder asked for this change to the previous brief — ` +
         `"${input.refinement}". Regenerate the brief with that applied, keeping ` +
-        `everything else that was already right.\n\nPREVIOUS BRIEF:\n${input.previous}`,
-    );
-  }
+        `everything else that was already right.\n\nPREVIOUS BRIEF:\n${input.previous}`
+      : null;
 
-  return parts.join("\n\n");
+  return { stable: parts.join("\n\n"), refinement };
 }
 
 /**

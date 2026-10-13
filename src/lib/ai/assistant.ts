@@ -331,12 +331,66 @@ export async function askEuclid(
   const final = await client.beta.messages.toolRunner({
     model: MODEL_STRONG,
     max_tokens: 16000,
-    system: SYSTEM,
+    /*
+      Two cache breakpoints, and this is the one place in the app where
+      caching earns anything at all.
+
+      The runner loops up to twelve times to answer one question — the real
+      ones so far take seven — and every iteration re-sends everything before
+      it. Uncached, the same tokens are charged at full price once per step.
+
+      Caching is a prefix match and the render order is tools -> system ->
+      messages, so each breakpoint caches everything from the start up to
+      itself:
+
+        - on the system block: the tool definitions and the system prompt.
+          Stable across every question from every founder, so this one is
+          still warm for the next person.
+        - on the question: the above plus the conversation history and the
+          question itself. Stable across all twelve steps of this question,
+          which is where the volume is.
+
+      What is left uncached is the tool results accumulating after the
+      question — they are appended by the runner, which owns the message list
+      from here on.
+
+      Nothing else in this directory is cached, deliberately: every other call
+      is a single request whose prefix is never re-sent, and those system
+      prompts are a few hundred tokens — under the ~1024-token minimum, so a
+      breakpoint there would cache nothing while looking like it did.
+    */
+    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
     thinking: { type: "adaptive" },
     tools: tools(boardId, steps),
     max_iterations: 12,
-    messages: [...history, { role: "user", content: question }],
+    messages: [
+      ...history,
+      {
+        role: "user",
+        content: [
+          { type: "text", text: question, cache_control: { type: "ephemeral" } },
+        ],
+      },
+    ],
   });
+
+  /*
+    What the last step of this question cost, and how much of it was read from
+    cache rather than paid for in full.
+
+    Logged because nothing else in the app records token usage, which makes
+    the one number that decides whether a plan is profitable invisible. It is
+    also the only way to know the cache is working: a breakpoint over a prefix
+    shorter than the ~1024-token minimum caches nothing and reports success,
+    so `cache_read_input_tokens` sitting at zero across a multi-step answer is
+    the signal that something silently stopped matching.
+  */
+  const u = final.usage;
+  console.info(
+    `[euclid] ask steps=${steps.length} in=${u.input_tokens} out=${u.output_tokens} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} ` +
+      `cache_read=${u.cache_read_input_tokens ?? 0}`,
+  );
 
   const raw = final.content
     .filter((b): b is { type: "text"; text: string } & typeof b => b.type === "text")

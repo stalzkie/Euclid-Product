@@ -4,8 +4,19 @@ import Anthropic from "@anthropic-ai/sdk";
  * One LLM provider for everything. Two models: a strong one for Build Prompt
  * and the chat assistant, a cheap one for routine jobs like naming clusters —
  * the PRD's AI cost-control note.
+ *
+ * The strong model is Sonnet 5 rather than Opus 5, decided on 2026-10-13 on
+ * cost. At $3/$15 per MTok against Opus's $5/$25 it is a little over half the
+ * price, and it is a true drop-in: same adaptive thinking, same `effort`
+ * surface, so nothing else in this directory changes. Haiku 4.5 is cheaper
+ * again but is not a drop-in — it has no adaptive thinking and rejects
+ * `effort` — and the chat assistant's answers come out of a loop of up to
+ * twelve reasoning steps, which is precisely what it would lose.
+ *
+ * The number that drove this: one real Ask Euclid question took 7 steps, and
+ * every step is a full call to this model.
  */
-export const MODEL_STRONG = "claude-opus-5";
+export const MODEL_STRONG = "claude-sonnet-5";
 export const MODEL_CHEAP = "claude-haiku-4-5";
 
 let cached: Anthropic | null = null;
