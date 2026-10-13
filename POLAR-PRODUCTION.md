@@ -22,10 +22,18 @@ Polar has **approved** the account. Since then:
       format raw, **API version 2027-01**, all **13 events** including
       `order.paid` and `order.refunded`.
 - [x] All ten ids collected.
-- [ ] **`POLAR_ACCESS_TOKEN` value** — a token named `Euclid-Production`
-      exists but Polar shows a token's value only once, at creation, so only
-      the founder has it.
-- [ ] The environment swap and the first real purchase.
+- [x] **Environment swapped.** All fourteen variables set in `.env.local` and
+      Vercel production, and deployed. `POLAR_SERVER=production`.
+- [x] **Preflight green against production**, discounts included — the token
+      has `discounts:read`, which sandbox's did not.
+- [ ] **Two scopes missing from the token.** It carries `products:read`,
+      `discounts:read` and `webhooks:read`, but **not `checkouts:write` or
+      `customer_sessions:write`** — so right now `/api/billing/checkout`,
+      `/api/billing/topup` and the billing-portal button all answer 502 on the
+      live site. Add both to the `Euclid-Production` token
+      (Settings → Developers → Update). Nothing else is affected: boards, the
+      widget and the dashboard are untouched.
+- [ ] The first real purchase, once the scopes are there.
 
 Two things caught while doing it, both of which would have failed silently:
 
