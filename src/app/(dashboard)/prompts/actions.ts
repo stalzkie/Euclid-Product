@@ -5,7 +5,7 @@ import { z } from "zod";
 import { uuid } from "@/lib/validation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
-import { PLANS } from "@/lib/plans";
+import { PLANS, hasPromptAllowance, spendAllowance } from "@/lib/plans";
 import {
   assemblePrompt,
   generateDraft,
@@ -66,7 +66,8 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
   const db = await supabaseServer();
   const plan = PLANS[ctx.workspace.plan];
 
-  if (ctx.workspace.prompts_used >= plan.buildPrompts) {
+  const extraPrompts = ctx.workspace.extra_prompts ?? 0;
+  if (!hasPromptAllowance(ctx.workspace.plan, ctx.workspace.prompts_used, extraPrompts)) {
     return {
       ok: false,
       code: "limit",
@@ -155,10 +156,17 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
     ]);
   }
 
-  // Meter the spend.
+  // Meter the spend: the monthly allowance first, a purchased balance only
+  // once that is gone. Both columns are written together, because which one
+  // moved is decided by `spendAllowance` and not by this call site.
+  const spent = spendAllowance({
+    used: ctx.workspace.prompts_used,
+    limit: plan.buildPrompts,
+    extra: extraPrompts,
+  });
   await db
     .from("workspaces")
-    .update({ prompts_used: ctx.workspace.prompts_used + 1 })
+    .update({ prompts_used: spent.used, extra_prompts: spent.extra })
     .eq("id", ctx.workspace.id);
 
   await db.from("activity").insert({

@@ -11,16 +11,16 @@ Everything in the PRD is built, plus billing and student verification, which
 the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
-npm run verify            # typecheck + lint + 446 unit tests
+npm run verify            # typecheck + lint + 460 unit tests
 npm run test:integration  # 57 tests, needs the app running
 npm run test:e2e          # 14 browser tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at 2026-10-13: **446 unit tests across 21 files**, **57 integration
+Counts at 2026-10-13: **460 unit tests across 22 files**, **57 integration
 tests**, **14 browser tests across 3 specs**, lint clean with zero warnings.
 
-**Fifteen migrations, all applied to the live database.** `0011_billing`,
+**Sixteen migrations, all applied to the live database.** `0011_billing`,
 `0012_student` and `0013_workspace_bootstrap` were confirmed present in
 production by querying `pg_proc` for `apply_subscription`, `verify_student`
 and `create_workspace`. `0014_definer_search_path` was confirmed by checking
@@ -335,6 +335,106 @@ stands up Supabase. It found two real widget bugs on its first run; see
 
 7. **The moderation queue holds nothing on the real board.** The integration
    test covers the code path; no real post has ever been held for approval.
+
+## AI cost, and what it is measured at
+
+Everything here was measured on 2026-10-13 and none of it was estimated. The
+app had no token logging at all until then, which is why the first answers
+about pricing were wrong by up to 7x in both directions.
+
+**The strong model is Sonnet 5, not Opus 5** (`src/lib/ai/client.ts`). $3/$15
+against $5/$25, and a true drop-in — same adaptive thinking, same `effort`
+surface. Haiku 4.5 is cheaper again but is *not* a drop-in: no adaptive
+thinking, and it rejects `effort`. The chat assistant answers out of a loop of
+up to twelve reasoning steps, which is exactly what it would lose.
+
+**Caching is on in two places and nowhere else**, because nowhere else has a
+prefix that is ever re-sent:
+
+- `assistant.ts`, two breakpoints — one on the system block (covers the tool
+  definitions too, stable across every founder) and one on the question
+  (covers history, stable across all steps of one answer).
+- `build-prompt.ts`, one breakpoint between the stable context and the
+  refinement tail, so refining a brief does not re-pay for the post, profile,
+  rules file and repo listing.
+
+The other call sites are single requests with ~270-token system prompts —
+under the ~1024-token minimum a cacheable prefix needs, so a breakpoint there
+would cache nothing while looking like it did. That is the trap worth
+remembering: caching too little is silent.
+
+Measured per-unit costs:
+
+| | Cost | How |
+|---|---|---|
+| Chat question | $0.071 | 7 steps, 1,935-token prefix cached each step |
+| Build Prompt, cold | $0.039 | writes the cache |
+| Build Prompt, warm | $0.033 | pays for *two* input tokens |
+| Build Prompt, refinement | $0.031 | reads 1,811 from cache |
+
+**Output is now ~85% of the cost.** Caching has effectively removed the input
+side, so further savings come from shorter outputs — `effort: "low"` on
+routine calls, tighter `max_tokens` — not from more caching.
+
+Both `askEuclid` and `generateDraft` log a usage line (`[euclid] ask …`,
+`[euclid] build-prompt …`). Those are the only record of what anything costs;
+a `cache_read` of zero across a multi-step answer means a breakpoint has
+silently stopped matching.
+
+### What the plans cost at full allowance
+
+| | Cost | Net of fees | Margin |
+|---|---|---|---|
+| Indie $9.99 | $1.71 | $9.19 | 81% |
+| Pro $19.99, 700 credits | $17.37 | $18.79 | 8% |
+
+Indie is the healthiest plan in the product and nothing about it needs
+attention. Pro is thin, and the reason has flipped: **Build Prompts are now
+the bigger half** ($10.29 of the $17.37, against chat's $7.08). If Pro needs
+margin, 300 Build Prompts is the number to look at, not the chat credits.
+
+`chatCredits` went 3000 -> 700 on 2026-10-13. A credit is one agent step and a
+real question takes four to seven, so 700 is roughly 100 questions.
+
+## Top-ups
+
+One-time purchases that extend an allowance without moving the plan.
+`0016_topups`, `/api/billing/topup`, `TOPUP_PACKS` in `src/lib/polar.ts`.
+
+**This is the second path into billing that this document warns about**, so it
+is built to the same rules as the first: the pack is derived from the Polar
+product id alone and an unknown id grants nothing, the workspace comes from
+the session and never from the request, and the write goes through a
+`security definer` function granted to `service_role` only.
+
+The one thing it has that subscriptions do not is an **idempotency key**. A
+plan is a state, so applying it three times leaves the same plan — which is
+why the three events Polar sent for one subscription change did no harm. A
+top-up is an increment, and the same three retries would be three times the
+credit. `apply_topup` keys on the Polar order id and returns whether it
+granted or recognised a replay. Proven against the live database: a second
+apply with the same order id returned `false` and did not move the balance.
+
+Four design decisions, all the founder's, made on 2026-10-13:
+
+- **Separate packs** for Build Prompts and chat credits, not a combined one.
+- **Purchased balance never expires.** `roll_usage_period` only ever touched
+  the two `_used` columns, so carry-over needed no change at all.
+- **Indie cannot buy chat credits.** It has `chatAssistant: false`, so they
+  would be unspendable, and Ask Euclid is the reason to upgrade. Enforced on
+  the server in the topup route, not only hidden in the UI.
+- **A balance that depletes, not a bigger limit.** `spendAllowance` spends the
+  monthly allowance first — it is the one that expires — and draws on the
+  purchased balance only once that is gone. Modelled as "+250 to the monthly
+  allowance" a top-up would silently re-grant itself every month forever;
+  `tests/unit/allowance.test.ts` has four tests that fail if anyone does that.
+
+**Nothing is for sale yet.** No `POLAR_TOPUP_*` ids are configured, so
+`availableTopups` returns nothing and the billing section does not render. The
+four products still have to be created in Polar — as **one-time** products,
+not subscriptions. A pack created as a subscription would re-grant itself
+monthly, because the webhook grants on `order.paid` and a renewal produces
+that event too. `scripts/polar-preflight.mjs` refuses a recurring one.
 
 ## Speed
 

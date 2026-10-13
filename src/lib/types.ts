@@ -78,6 +78,15 @@ export interface Workspace {
   app_url: string | null;
   prompts_used: number;
   chat_credits_used: number;
+  /**
+   * Allowance bought with a top-up, on top of the plan's monthly one.
+   *
+   * A balance that depletes, not a larger limit: `roll_usage_period` clears
+   * the two `_used` counters each month and deliberately leaves these alone,
+   * so a founder keeps what they paid for. See `Allowance` in `plans.ts`.
+   */
+  extra_prompts: number;
+  extra_chat_credits: number;
   usage_period_start: string;
   onboarded_at: string | null;
   created_at: string;

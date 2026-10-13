@@ -1,6 +1,12 @@
 import { createPolar } from "@polar-sh/sdk/2027-01";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { isEntitled, planForProduct, polarServer } from "@/lib/polar";
+import {
+  isEntitled,
+  planForProduct,
+  polarServer,
+  topupForProduct,
+  type TopupKind,
+} from "@/lib/polar";
 import type { PlanTier } from "@/lib/types";
 
 /**
@@ -22,6 +28,72 @@ export function polar() {
   // over fetch, so this is about avoiding the construction, not a connection.
   client ??= createPolar({ accessToken, environment: polarServer() });
   return client;
+}
+
+/** What a webhook told us about one paid order, narrowed to what we need. */
+export interface OrderState {
+  orderId: string;
+  customerId: string;
+  productId: string;
+  /** `workspace_id` as set in the checkout's metadata, when it survived. */
+  workspaceId: string | null;
+}
+
+/**
+ * Apply a one-time top-up purchase.
+ *
+ * The same shape as `applySubscription` and for the same reasons: the pack is
+ * derived from the product id alone and an unknown id grants nothing, the
+ * workspace is found by the routes we already trust, and the write goes
+ * through a definer function granted to `service_role` only.
+ *
+ * The one thing this has that subscriptions do not is an explicit idempotency
+ * key. A plan is a state — applying it three times leaves the same plan, which
+ * is why the retries during testing did no harm. A top-up is an increment, so
+ * the same three retries would be three times the credit. `apply_topup` keys
+ * on the Polar order id and tells us whether it granted or recognised a
+ * replay.
+ */
+export async function applyTopup(
+  state: OrderState,
+): Promise<
+  | { ok: true; workspace: string; kind: TopupKind; quantity: number; granted: boolean }
+  | { ok: false; error: string }
+> {
+  const pack = topupForProduct(state.productId);
+  if (!pack) {
+    return { ok: false, error: `Unknown Polar product ${state.productId}` };
+  }
+
+  const workspace = await workspaceForSubscription({
+    subscriptionId: "",
+    customerId: state.customerId,
+    productId: state.productId,
+    status: "",
+    currentPeriodEnd: null,
+    workspaceId: state.workspaceId,
+  });
+  if (!workspace) {
+    return { ok: false, error: `No workspace for order ${state.orderId}` };
+  }
+
+  const db = supabaseAdmin();
+  const { data, error } = await db.rpc("apply_topup", {
+    p_workspace: workspace,
+    p_order_id: state.orderId,
+    p_kind: pack.kind,
+    p_quantity: pack.quantity,
+  });
+
+  if (error) return { ok: false, error: error.message };
+
+  return {
+    ok: true,
+    workspace,
+    kind: pack.kind,
+    quantity: pack.quantity,
+    granted: data === true,
+  };
 }
 
 /** What a webhook told us about one subscription, narrowed to what we store. */
@@ -67,6 +139,11 @@ export async function workspaceForSubscription(state: SubscriptionState): Promis
     ["polar_subscription_id", state.subscriptionId],
     ["polar_customer_id", state.customerId],
   ] as const) {
+    // An empty id matches a row whose column is an empty string rather than
+    // null, which would hand someone else's workspace the credit. A one-time
+    // order has no subscription id at all, so this is reached on every
+    // top-up — the same blank-is-not-absent trap `planForProduct` guards.
+    if (!value) continue;
     const { data } = await db.from("workspaces").select("id").eq(column, value).maybeSingle();
     if (data) return data.id as string;
   }

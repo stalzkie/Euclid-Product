@@ -216,6 +216,71 @@ if (!found.length) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Top-up packs                                                               */
+/* -------------------------------------------------------------------------- */
+
+/*
+  One-time products, so they are checked differently from the plans: a top-up
+  must NOT be recurring. A pack accidentally created as a subscription would
+  bill someone monthly for a thing they bought once, and nothing in the app
+  would notice — the webhook grants on `order.paid`, which a subscription
+  renewal also produces.
+
+  These are optional. A deployment with none configured simply does not sell
+  top-ups, which is the state before the products exist.
+*/
+console.log("");
+
+const PACKS = [
+  "POLAR_TOPUP_PROMPTS_50",
+  "POLAR_TOPUP_PROMPTS_200",
+  "POLAR_TOPUP_CREDITS_250",
+  "POLAR_TOPUP_CREDITS_1000",
+];
+
+for (const env of PACKS) {
+  const id = process.env[env];
+  if (!id) {
+    console.log(`- ${env}  - not set (pack not for sale)`);
+    continue;
+  }
+
+  if (seen.has(id)) {
+    fail(`${env} and ${seen.get(id)} hold the same product id.`);
+  }
+  seen.set(id, env);
+
+  try {
+    const product = await polar.products.get(id);
+    const price = (product.prices ?? []).find((p) => !p.is_archived) ?? null;
+    const amount = price ? `$${(price.price_amount / 100).toFixed(2)}` : "no active price";
+    console.log(`${product.is_recurring ? "x" : "+"} ${env}
+    ${product.name} - ${amount} one-time`);
+
+    if (product.is_recurring) {
+      fail(
+        `${env} points at "${product.name}", which Polar bills every ` +
+          `${product.recurring_interval}. A top-up is a one-time purchase - as a ` +
+          `subscription it would charge again every month for a pack bought once.`,
+      );
+    }
+    if (product.is_archived) {
+      fail(`${env} points at "${product.name}", which is archived in Polar.`);
+    }
+    if (!price) {
+      fail(`${env} points at "${product.name}", which has no active price.`);
+    }
+    if (orgs.size === 1 && !orgs.has(product.organization_id)) {
+      fail(`${env} belongs to a different organisation than the plan products.`);
+    }
+  } catch (err) {
+    const status = err?.statusCode ?? "?";
+    fail(`${env} (${id}) does not resolve on ${server} - Polar answered ${status}.`);
+    console.log(`x ${env}  - ${status} from Polar`);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* Discounts                                                                  */
 /* -------------------------------------------------------------------------- */
 

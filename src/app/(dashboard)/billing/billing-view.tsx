@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
-import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui";
+import { Banner, Button, ButtonLink, Input, Meter, SectionTitle, cx } from "@/components/ui";
 import { Segmented, Spinner } from "@/components/controls";
 import { useToast } from "@/components/motion";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
@@ -25,6 +25,9 @@ export function BillingView({
   billingPeriod,
   promptsUsed,
   chatCreditsUsed,
+  extraPrompts,
+  extraChatCredits,
+  topups,
   boardCount,
   periodStart,
   memberCount,
@@ -38,6 +41,11 @@ export function BillingView({
   billingPeriod: "monthly" | "yearly";
   promptsUsed: number;
   chatCreditsUsed: number;
+  /** Balance bought with a top-up. Survives the monthly reset. */
+  extraPrompts: number;
+  extraChatCredits: number;
+  /** Packs this deployment can sell to this plan. Empty hides the section. */
+  topups: { id: string; label: string; price: number; kind: "prompts" | "credits" }[];
   boardCount: number;
   periodStart: string;
   memberCount: number;
@@ -89,11 +97,27 @@ export function BillingView({
   const renewal = new Date(periodStart);
   renewal.setMonth(renewal.getMonth() + 1);
 
+  /*
+    Steps per chat question, for turning a credit balance into the number a
+    founder actually cares about.
+
+    A credit is one step of the Ask Euclid agent. Real answers measured on
+    2026-10-13 took four and seven steps, so six is the midpoint — and
+    rounding towards the pessimistic end is deliberate: a founder who is told
+    to expect 100 questions and gets 140 is pleased, and one told to expect
+    230 and gets 140 has been misled. This said three before anything measured
+    it, which overstated the allowance by roughly double.
+  */
+  const STEPS_PER_QUESTION = 6;
+
+  const creditsLeft = Math.max(0, current.chatCredits - chatCreditsUsed) + extraChatCredits;
+
   const usage = [
     {
       label: "Build Prompts",
       used: promptsUsed,
       limit: current.buildPrompts,
+      extra: extraPrompts,
       color: promptsUsed >= current.buildPrompts ? "#F59E0B" : "#1A8CFF",
       note: `Resets ${longDate(renewal.toISOString())}`,
     },
@@ -101,17 +125,17 @@ export function BillingView({
       label: "AI chat credits",
       used: chatCreditsUsed,
       limit: current.chatCredits,
+      extra: extraChatCredits,
       color: "#1A8CFF",
       note: current.chatCredits
-        ? `${Math.max(0, current.chatCredits - chatCreditsUsed)} left · about ${Math.round(
-            Math.max(0, current.chatCredits - chatCreditsUsed) / 3,
-          )} questions`
+        ? `${creditsLeft} left · about ${Math.round(creditsLeft / STEPS_PER_QUESTION)} questions`
         : "Ask Euclid is on the Pro plan",
     },
     {
       label: "Boards",
       used: boardCount,
       limit: current.boards ?? boardCount,
+      extra: 0,
       color:
         current.boards !== null && boardCount >= current.boards ? "#F59E0B" : "#1A8CFF",
       note:
@@ -243,6 +267,10 @@ export function BillingView({
                   <span className="text-ink-2">{u.label}</span>
                   <span className="tnum">
                     {u.used} of {u.limit}
+                    {/* Shown separately rather than folded into the limit:
+                        bought balance does not reset with the month, and a
+                        single combined number would hide that. */}
+                    {u.extra > 0 && <span className="text-ink-3"> +{u.extra} bought</span>}
                   </span>
                 </div>
                 <Meter value={u.used} max={u.limit || 1} color={u.color} />
@@ -251,6 +279,28 @@ export function BillingView({
             ))}
           </div>
         </section>
+
+        {/* Top-ups */}
+        {topups.length > 0 && (
+          <section aria-labelledby="topup-title" className="flex flex-col gap-3">
+            <SectionTitle id="topup-title">Need more this month?</SectionTitle>
+            <p className="text-[13px] text-ink-2">
+              A one-off top-up adds to your allowance without changing your plan. What
+              you buy never expires — it carries over every month until you use it.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {topups.map((pack) => (
+                <ButtonLink
+                  key={pack.id}
+                  href={`/api/billing/topup?pack=${pack.id}`}
+                  variant="secondary"
+                >
+                  {pack.label} · ${pack.price}
+                </ButtonLink>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Plans */}
         <section aria-labelledby="plans-title" className="flex flex-col gap-4">

@@ -30,6 +30,107 @@ export const POLAR_PRODUCTS: PolarProduct[] = [
   { tier: "pro", period: "yearly", env: "POLAR_PRODUCT_PRO_YEARLY" },
 ];
 
+/* -------------------------------------------------------------------------- */
+/* Top-ups                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** What a top-up pack adds to. Matches the two metered things in `plans.ts`. */
+export type TopupKind = "prompts" | "credits";
+
+export interface TopupPack {
+  id: string;
+  kind: TopupKind;
+  /** How many Build Prompts or chat credits the pack grants. */
+  quantity: number;
+  label: string;
+  /** Display price. Polar holds the real one; this is for the button. */
+  price: number;
+  env: string;
+  /** Tiers allowed to buy it. Credits are useless without the chat feature. */
+  tiers: PaidTier[];
+}
+
+/**
+ * One-time purchases that extend an allowance without changing the plan.
+ *
+ * These are ordinary Polar products rather than subscriptions, which is why
+ * they arrive at the webhook as `order.*` and not `subscription.*`. The
+ * quantities live here and not in Polar because the webhook has to know what
+ * an order grants, and reading it back from the product metadata would make
+ * entitlement depend on a field anybody with dashboard access can edit.
+ *
+ * Purchased balance never expires — see `Allowance` in `plans.ts`.
+ */
+export const TOPUP_PACKS: TopupPack[] = [
+  {
+    id: "prompts_50",
+    kind: "prompts",
+    quantity: 50,
+    label: "50 Build Prompts",
+    price: 5,
+    env: "POLAR_TOPUP_PROMPTS_50",
+    // Indie's allowance is the one that actually runs out, and Build Prompts
+    // are the feature it is sold on.
+    tiers: ["indie", "pro"],
+  },
+  {
+    id: "prompts_200",
+    kind: "prompts",
+    quantity: 200,
+    label: "200 Build Prompts",
+    price: 15,
+    env: "POLAR_TOPUP_PROMPTS_200",
+    tiers: ["indie", "pro"],
+  },
+  {
+    id: "credits_250",
+    kind: "credits",
+    quantity: 250,
+    label: "250 chat credits",
+    price: 5,
+    env: "POLAR_TOPUP_CREDITS_250",
+    // Pro only. Indie has `chatAssistant: false`, so credits bought there
+    // would be unspendable — and Ask Euclid is the reason to upgrade.
+    tiers: ["pro"],
+  },
+  {
+    id: "credits_1000",
+    kind: "credits",
+    quantity: 1000,
+    label: "1,000 chat credits",
+    price: 15,
+    env: "POLAR_TOPUP_CREDITS_1000",
+    tiers: ["pro"],
+  },
+];
+
+/** The configured product id for a pack, or null when it is not for sale. */
+export function topupProductId(pack: TopupPack): string | null {
+  return process.env[pack.env] || null;
+}
+
+/** Packs this deployment can actually sell to this tier. */
+export function availableTopups(tier: PaidTier): TopupPack[] {
+  return TOPUP_PACKS.filter((p) => p.tiers.includes(tier) && topupProductId(p));
+}
+
+export function topupById(id: string): TopupPack | null {
+  return TOPUP_PACKS.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * What a purchased Polar product grants, by product id.
+ *
+ * Fails closed exactly like `planForProduct`, and for the same reason: an
+ * order for a product this deployment does not recognise must grant nothing
+ * rather than be guessed at. The empty-string guard matters here too — a
+ * blank `POLAR_TOPUP_*` would otherwise match an empty product id.
+ */
+export function topupForProduct(productId: string): TopupPack | null {
+  if (!productId) return null;
+  return TOPUP_PACKS.find((p) => topupProductId(p) === productId) ?? null;
+}
+
 /**
  * Which Polar to talk to. Sandbox is the default on purpose: forgetting to set
  * this should route money nowhere, not to a live card.

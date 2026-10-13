@@ -1,7 +1,12 @@
 import { Shell } from "@/components/shell";
 import { requireFounder } from "@/server/context";
 import { supabaseServer } from "@/lib/supabase/server";
-import { billingEnabled, studentDiscountId, trialDays } from "@/lib/polar";
+import {
+  availableTopups,
+  billingEnabled,
+  studentDiscountId,
+  trialDays,
+} from "@/lib/polar";
 import { studentVerificationActive, studentVerificationExpiry } from "@/lib/student";
 import { BillingView } from "./billing-view";
 
@@ -30,6 +35,13 @@ export default async function BillingPage() {
         billingPeriod={ctx.workspace.billing_period}
         promptsUsed={ctx.workspace.prompts_used}
         chatCreditsUsed={ctx.workspace.chat_credits_used}
+        extraPrompts={ctx.workspace.extra_prompts ?? 0}
+        extraChatCredits={ctx.workspace.extra_chat_credits ?? 0}
+        // Free has nothing to top up — the answer there is to upgrade, not to
+        // buy an allowance onto a plan that has none.
+        topups={
+          ctx.workspace.plan === "free" ? [] : availableTopups(ctx.workspace.plan)
+        }
         boardCount={ctx.boards.length}
         periodStart={ctx.workspace.usage_period_start}
         memberCount={members?.length ?? 1}

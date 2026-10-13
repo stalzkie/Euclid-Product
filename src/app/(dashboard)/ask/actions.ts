@@ -7,7 +7,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
 import { askEuclid } from "@/lib/ai/assistant";
 import { AiUnavailableError, explainAiError } from "@/lib/ai/client";
-import { PLANS } from "@/lib/plans";
+import { PLANS, hasChatAllowance, spendAllowance } from "@/lib/plans";
 import type { ChatMessage } from "@/lib/types";
 
 /** Ask Euclid. One credit per question; answers always cite their posts. */
@@ -36,7 +36,8 @@ export async function ask(input: z.infer<typeof Ask>): Promise<AskResponse> {
       error: `Ask Euclid is on the Pro plan. You are on ${plan.name}.`,
     };
   }
-  if (ctx.workspace.chat_credits_used >= plan.chatCredits) {
+  const extraCredits = ctx.workspace.extra_chat_credits ?? 0;
+  if (!hasChatAllowance(ctx.workspace.plan, ctx.workspace.chat_credits_used, extraCredits)) {
     return {
       ok: false,
       code: "limit",
@@ -114,9 +115,21 @@ export async function ask(input: z.infer<typeof Ask>): Promise<AskResponse> {
   // One credit per step the model took, with a floor of one, so a cheap
   // question costs less than an expensive one.
   const cost = Math.max(1, answer.steps.length);
+  // The monthly allowance first, a purchased balance only once it is gone.
+  // A question costing more credits than remain is allowed to finish: it is
+  // already answered by the time this runs, and billing someone by killing an
+  // answer they are reading would be the wrong trade.
+  const spent = spendAllowance(
+    {
+      used: ctx.workspace.chat_credits_used,
+      limit: plan.chatCredits,
+      extra: extraCredits,
+    },
+    cost,
+  );
   await db
     .from("workspaces")
-    .update({ chat_credits_used: ctx.workspace.chat_credits_used + cost })
+    .update({ chat_credits_used: spent.used, extra_chat_credits: spent.extra })
     .eq("id", ctx.workspace.id);
 
   revalidatePath("/ask");
