@@ -42,6 +42,28 @@ const SLOTS = [
   { env: "POLAR_PRODUCT_PRO_YEARLY", tier: "pro", period: "yearly", interval: "year" },
 ];
 
+/*
+  A trial in days, whatever unit Polar stored it in.
+
+  Sandbox carried "7 day" and production carries "1 week" for the same seven
+  days, so comparing the printed string against `${POLAR_TRIAL_DAYS} day`
+  reported a mismatch on a setup that was entirely correct. Compare the
+  duration, not the wording.
+*/
+const TRIAL_DAYS = { day: 1, week: 7, month: 30, year: 365 };
+
+function trialDays(product) {
+  const unit = TRIAL_DAYS[product.trial_interval];
+  if (!unit || !product.trial_interval_count) return 0;
+  return product.trial_interval_count * unit;
+}
+
+function describeTrial(product) {
+  const days = trialDays(product);
+  if (!days) return "no trial";
+  return `${product.trial_interval_count} ${product.trial_interval} (${days}d) trial`;
+}
+
 const problems = [];
 const notes = [];
 const fail = (message) => problems.push(message);
@@ -124,10 +146,7 @@ for (const slot of SLOTS) {
 
   const price = (product.prices ?? []).find((p) => !p.is_archived) ?? null;
   const amount = price ? `$${(price.price_amount / 100).toFixed(2)}` : "no active price";
-  const trial =
-    product.trial_interval && product.trial_interval_count
-      ? `${product.trial_interval_count} ${product.trial_interval} trial`
-      : "no trial";
+  const trial = describeTrial(product);
 
   console.log(
     `${product.recurring_interval === slot.interval && !product.is_archived ? "✓" : "✗"} ` +
@@ -178,17 +197,11 @@ if (orgs.size > 1) {
 // Only worth asking once something resolved. Comparing trials across an empty
 // set reported that the products carry "undefined", which reads as a second
 // fault rather than a consequence of the first.
-const trials = new Set(
-  found.map((f) =>
-    f.product.trial_interval && f.product.trial_interval_count
-      ? `${f.product.trial_interval_count} ${f.product.trial_interval}`
-      : "none",
-  ),
-);
+const trials = new Set(found.map((f) => trialDays(f.product)));
 if (trials.size > 1) {
   fail(
-    `The products do not agree on a trial (${[...trials].join(", ")}), so what a ` +
-      `founder gets depends on which plan they pick.`,
+    `The products do not agree on a trial (${[...trials].join(", ")} days), so what ` +
+      `a founder gets depends on which plan they pick.`,
   );
 }
 
@@ -200,15 +213,15 @@ const actual = [...trials][0];
 if (!found.length) {
   // Nothing resolved, so there is nothing to compare a trial against.
 } else if (Number.isInteger(advertised) && advertised > 0) {
-  if (actual === `${advertised} day`) {
-    console.log(`✓ trial · ${actual}, matching POLAR_TRIAL_DAYS`);
+  if (actual === advertised) {
+    console.log(`✓ trial · ${actual} days, matching POLAR_TRIAL_DAYS`);
   } else {
     fail(
-      `POLAR_TRIAL_DAYS=${advertised} but the products carry "${actual}". The ` +
+      `POLAR_TRIAL_DAYS=${advertised} but the products carry ${actual} days. The ` +
         `upgrade button would promise a trial the checkout does not give.`,
     );
   }
-} else if (actual && actual !== "none") {
+} else if (actual) {
   note(
     `The products carry a ${actual} trial but POLAR_TRIAL_DAYS is not set, so the ` +
       `upgrade button will not mention it.`,
