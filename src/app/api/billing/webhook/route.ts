@@ -47,10 +47,14 @@ const SUBSCRIPTION_EVENTS = new Set([
 const ORDER_EVENTS = new Set(["order.paid"]);
 
 async function handleOrder(event: { type: string; data: unknown }) {
+  // `product_id` is nullable on Polar's Order — an order assembled from line
+  // items need not have a single product. A top-up always does, and an order
+  // without one cannot be a pack, so it falls through to the unknown-product
+  // branch below and is acknowledged rather than retried.
   const order = event.data as {
     id: string;
     customer_id: string;
-    product_id: string;
+    product_id: string | null;
     metadata?: Record<string, unknown> | null;
   };
 
@@ -58,7 +62,7 @@ async function handleOrder(event: { type: string; data: unknown }) {
   const result = await applyTopup({
     orderId: order.id,
     customerId: order.customer_id,
-    productId: order.product_id,
+    productId: order.product_id ?? "",
     workspaceId: typeof workspaceId === "string" ? workspaceId : null,
   });
 

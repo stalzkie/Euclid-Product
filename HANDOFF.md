@@ -431,12 +431,42 @@ Four design decisions, all the founder's, made on 2026-10-13:
   allowance" a top-up would silently re-grant itself every month forever;
   `tests/unit/allowance.test.ts` has four tests that fail if anyone does that.
 
-**Nothing is for sale yet.** No `POLAR_TOPUP_*` ids are configured, so
-`availableTopups` returns nothing and the billing section does not render. The
-four products still have to be created in Polar — as **one-time** products,
-not subscriptions. A pack created as a subscription would re-grant itself
-monthly, because the webhook grants on `order.paid` and a renewal produces
-that event too. `scripts/polar-preflight.mjs` refuses a recurring one.
+**The four packs exist in sandbox and the whole chain is proven.** They were
+created through the API — the organisation token turned out to have
+`products:write`, which a probe showed by answering 422 (bad body) rather than
+403 (no scope). All four are **one-time** products; `polar-preflight.mjs`
+refuses a recurring one, because the webhook grants on `order.paid` and a
+subscription renewal produces that event too, so a pack created as a
+subscription would re-grant itself every month.
+
+| Pack | Price | Env |
+|---|---|---|
+| 50 Build Prompts | $5 | `POLAR_TOPUP_PROMPTS_50` |
+| 200 Build Prompts | $15 | `POLAR_TOPUP_PROMPTS_200` |
+| 250 chat credits | $5 | `POLAR_TOPUP_CREDITS_250` |
+| 1,000 chat credits | $15 | `POLAR_TOPUP_CREDITS_1000` |
+
+On 2026-10-13 a real sandbox card payment went through the deployed code end
+to end: checkout -> payment -> `order.paid` -> the production webhook ->
+`apply_topup` -> `extra_prompts` 0 to 50, with the Polar order id in
+`credit_topups`. It landed within five seconds. The test workspace and user
+were deleted afterwards.
+
+**The first attempt granted nothing, and the reason is the thing to remember.**
+The Polar webhook endpoint subscribes to a list of event types, and it had
+only the eleven `subscription.*` events ticked. `order.paid` was never sent —
+no request reached the server at all, so there was nothing to debug in the
+app. `order.paid` is now ticked on the sandbox endpoint. **It will have to be
+ticked again on the production endpoint**, and that is invisible from the
+code: the app looks correct, the checkout completes, the customer is charged,
+and nothing happens. The token cannot read webhook settings either
+(`webhooks:read` is missing like `discounts:read` and `orders:read`), so this
+can only be checked in the dashboard.
+
+**Refunds are not handled.** `order.refunded` is deliberately not subscribed:
+a refunded top-up currently keeps its credit, because nothing reverses a
+grant. Worth closing before real money, and it needs a thought about what to
+do when the balance has already been spent.
 
 ## Speed
 
@@ -588,6 +618,19 @@ pre-commit scan before anything was pushed.
   question. `RETRY_MAX_ATTEMPTS` is mirrored as `attempts < 5` inside both
   claim functions in SQL; a unit test pins the constant so the two cannot
   drift without something saying so.
+
+- **An off-origin redirect needs a real navigation, not a `Link`.** The
+  billing routes answer with a redirect to Polar, and Next's client router
+  cannot follow one off-origin — it has to be the browser making the request,
+  which is why the upgrade and portal buttons call
+  `window.location.assign`. Routed through `Link` the button silently does
+  nothing, which is exactly how the top-up buttons first shipped.
+
+- **Polar rejects reserved e-mail domains.** The browser suite's fixtures use
+  `@euclid.test`, which Supabase auth accepts and Polar refuses outright —
+  "a special-use or reserved name". The address reaches Polar as
+  `customer_email` straight from the signed-in founder, so anything that
+  touches a real checkout needs a normal domain.
 
 - **The Supabase client is untyped.** There is no generated `Database` type,
   so new tables need no type regeneration — but also get no compile-time

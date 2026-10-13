@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
-import { Banner, Button, ButtonLink, Input, Meter, SectionTitle, cx } from "@/components/ui";
+import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui";
 import { Segmented, Spinner } from "@/components/controls";
 import { useToast } from "@/components/motion";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
@@ -290,13 +290,23 @@ export function BillingView({
             </p>
             <div className="flex flex-wrap gap-2">
               {topups.map((pack) => (
-                <ButtonLink
+                <Button
                   key={pack.id}
-                  href={`/api/billing/topup?pack=${pack.id}`}
                   variant="secondary"
+                  onClick={() =>
+                    // A real browser navigation, not a Link. The route answers
+                    // with a redirect to Polar, and the client router cannot
+                    // follow one off-origin — the same reason the upgrade and
+                    // portal buttons below do this. Routed through Link it
+                    // simply does nothing, which is exactly how it shipped
+                    // once.
+                    window.location.assign(
+                      new URL(`/api/billing/topup?pack=${pack.id}`, window.location.origin),
+                    )
+                  }
                 >
                   {pack.label} · ${pack.price}
-                </ButtonLink>
+                </Button>
               ))}
             </div>
           </section>
