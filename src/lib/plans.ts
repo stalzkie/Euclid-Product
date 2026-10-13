@@ -80,19 +80,20 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     boards: null,
     buildPrompts: 300,
     /*
-      700, down from 3000 on 2026-10-13.
+      500, down from 3000 on 2026-10-13.
 
       A credit is one step of the Ask Euclid agent, and a real question takes
-      four to seven of them — so this is roughly 100 questions a month. 3000
+      four to seven of them — so this is roughly 85 questions a month. 3000
       was set before anything measured what a step costs: at $0.071 a question
       it put the chat ceiling alone at $30 against $18.79 of net revenue, so a
       single heavy founder cost more than they paid.
 
-      At 700 the whole plan's ceiling is $17.37 against $18.79. Thin, and
-      deliberately so — the allowance is meant to be generous for anyone
-      normal and merely survivable for the one person who lives in it.
+      At 500 the whole plan's ceiling is $15.35 against $18.79 — a 18% margin
+      even for the one founder who exhausts everything, which is the property
+      worth having. Running out has an answer now: a top-up pack, rather than
+      waiting for the 1st.
     */
-    chatCredits: 700,
+    chatCredits: 500,
     badge: false,
     jwtIdentity: true,
     analytics: true,

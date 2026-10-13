@@ -386,15 +386,17 @@ silently stopped matching.
 | | Cost | Net of fees | Margin |
 |---|---|---|---|
 | Indie $9.99 | $1.71 | $9.19 | 81% |
-| Pro $19.99, 700 credits | $17.37 | $18.79 | 8% |
+| Pro $19.99, 500 credits | $15.35 | $18.79 | 18% |
 
 Indie is the healthiest plan in the product and nothing about it needs
 attention. Pro is thin, and the reason has flipped: **Build Prompts are now
 the bigger half** ($10.29 of the $17.37, against chat's $7.08). If Pro needs
-margin, 300 Build Prompts is the number to look at, not the chat credits.
+margin, 300 Build Prompts is the number to look at, not the chat credits:
+they are $10.29 of the $15.35, against chat's $5.06.
 
-`chatCredits` went 3000 -> 700 on 2026-10-13. A credit is one agent step and a
-real question takes four to seven, so 700 is roughly 100 questions.
+`chatCredits` went 3000 -> 500 on 2026-10-13. A credit is one agent step and a
+real question takes four to seven, so 500 is roughly 85 questions. Running out
+is no longer a dead end: see Top-ups below.
 
 ## Top-ups
 
