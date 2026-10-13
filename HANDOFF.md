@@ -81,6 +81,12 @@ Ordered by what actually blocks a launch. Detail for each is further down.
    approves, a real checkout cannot complete whatever the app is configured
    with. Submitting identity and business details is the founder's to do.
 
+   **`POLAR-PRODUCTION.md` is the step-by-step**: all eight products with
+   their exact names, prices, intervals and descriptions as configured in
+   sandbox, both discounts, the token scopes, the webhook endpoint with the
+   thirteen events to tick, the fourteen environment variables and how to
+   verify the lot.
+
    Needs: **ten** ids now, not six — four plan products, two discounts and the
    four top-up packs — all recreated in the production org, plus
    `POLAR_SERVER=production`, a production token, and a production webhook
