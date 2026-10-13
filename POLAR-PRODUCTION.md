@@ -34,52 +34,176 @@ site starts failing.
 
 ## 1. Eight products
 
-Create each one in **Products → New**. The two things that matter beyond the
-price are the **billing interval** and the **trial**, and they are different
-for the two groups.
+One block per product, in the order Polar's **Products → New** form asks for
+them, so nothing has to be looked up in a second place while typing. Create
+them in any order; tick them off as the ids come back.
 
-### Subscriptions (four) — recurring, 7-day trial
+What you are creating, at a glance:
 
-| Name | Price | Billing | Trial | Env var for the id |
-|---|---|---|---|---|
-| `Euclid Indie - Monthly` | $12.00 | Monthly | 7 days | `POLAR_PRODUCT_INDIE_MONTHLY` |
-| `Euclid Indie - Yearly` | $120.00 | Yearly | 7 days | `POLAR_PRODUCT_INDIE_YEARLY` |
-| `Euclid Pro - Monthly` | $29.00 | Monthly | 7 days | `POLAR_PRODUCT_PRO_MONTHLY` |
-| `Euclid Pro - Yearly` | $288.00 | Yearly | 7 days | `POLAR_PRODUCT_PRO_YEARLY` |
+- [ ] 1 · Euclid Indie - Monthly — $12.00, recurring
+- [ ] 2 · Euclid Indie - Yearly — $120.00, recurring
+- [ ] 3 · Euclid Pro - Monthly — $29.00, recurring
+- [ ] 4 · Euclid Pro - Yearly — $288.00, recurring
+- [ ] 5 · Euclid - 50 Build Prompts — $5.00, **one-time**
+- [ ] 6 · Euclid - 200 Build Prompts — $15.00, **one-time**
+- [ ] 7 · Euclid - 250 Ask Euclid credits — $5.00, **one-time**
+- [ ] 8 · Euclid - 1,000 Ask Euclid credits — $15.00, **one-time**
 
-Descriptions, as they read in sandbox:
+Two rules that apply across the groups, both of which fail silently:
 
-- **Indie Monthly** — 3 boards, signed JWT identity, duplicate merging, themes and analytics. Billed monthly.
-- **Indie Yearly** — 3 boards, signed JWT identity, duplicate merging, themes and analytics. Billed yearly.
-- **Pro Monthly** — Unlimited boards, Ask Euclid chat, weekly digest, custom domain and GitHub repo context. Billed monthly.
-- **Pro Yearly** — Unlimited boards, Ask Euclid chat, weekly digest, custom domain and GitHub repo context. Billed yearly.
+- **All four subscriptions need the same 7-day trial.** Polar owns the trial;
+  the app only reads `POLAR_TRIAL_DAYS` to decide what the upgrade button
+  promises, so a product with a different trial makes the button lie. The
+  preflight checks the four agree with each other and with the variable.
+- **All four top-ups must be one-time, not recurring.** The app grants a
+  top-up when Polar reports `order.paid`, and a subscription renewal produces
+  that same event — so a pack created as recurring would charge every month
+  *and* re-grant its credits every month. `scripts/polar-preflight.mjs`
+  refuses a recurring top-up for exactly this reason.
 
-All four need the **same 7-day trial**. Polar owns the trial; the app only
-reads `POLAR_TRIAL_DAYS` to decide what the upgrade button promises, so a
-product with a different trial makes the button lie. The preflight checks that
-the four agree with each other and with the variable.
+---
 
-### Top-ups (four) — ONE-TIME, no trial
+### 1 · Euclid Indie - Monthly
 
-| Name | Price | Billing | Env var for the id |
-|---|---|---|---|
-| `Euclid - 50 Build Prompts` | $5.00 | **One-time** | `POLAR_TOPUP_PROMPTS_50` |
-| `Euclid - 200 Build Prompts` | $15.00 | **One-time** | `POLAR_TOPUP_PROMPTS_200` |
-| `Euclid - 250 Ask Euclid credits` | $5.00 | **One-time** | `POLAR_TOPUP_CREDITS_250` |
-| `Euclid - 1,000 Ask Euclid credits` | $15.00 | **One-time** | `POLAR_TOPUP_CREDITS_1000` |
+| Field | Value |
+|---|---|
+| Name | `Euclid Indie - Monthly` |
+| Pricing type | Recurring |
+| Billing cycle | **Monthly** |
+| Amount | **12.00** USD |
+| Free trial | **7 days** |
 
-Descriptions:
+```
+3 boards, signed JWT identity, duplicate merging, themes and analytics. Billed monthly.
+```
 
-- **50 Build Prompts** — A one-time top-up: 50 extra Build Prompts added to your workspace. Never expires - unused prompts carry over every month.
-- **200 Build Prompts** — A one-time top-up: 200 extra Build Prompts added to your workspace. Never expires - unused prompts carry over every month.
-- **250 credits** — A one-time top-up: 250 extra chat credits, about 40 questions. Never expires - unused credits carry over every month.
-- **1,000 credits** — A one-time top-up: 1,000 extra chat credits, about 165 questions. Never expires - unused credits carry over every month.
+→ `POLAR_PRODUCT_INDIE_MONTHLY=`
 
-> **These must not be subscriptions.** The app grants a top-up when Polar
-> reports `order.paid`, and a subscription renewal produces that same event —
-> so a pack created as a recurring product would charge monthly *and* re-grant
-> its credits every month. `scripts/polar-preflight.mjs` refuses a recurring
-> top-up for exactly this reason.
+---
+
+### 2 · Euclid Indie - Yearly
+
+| Field | Value |
+|---|---|
+| Name | `Euclid Indie - Yearly` |
+| Pricing type | Recurring |
+| Billing cycle | **Yearly** |
+| Amount | **120.00** USD |
+| Free trial | **7 days** |
+
+```
+3 boards, signed JWT identity, duplicate merging, themes and analytics. Billed yearly.
+```
+
+→ `POLAR_PRODUCT_INDIE_YEARLY=`
+
+---
+
+### 3 · Euclid Pro - Monthly
+
+| Field | Value |
+|---|---|
+| Name | `Euclid Pro - Monthly` |
+| Pricing type | Recurring |
+| Billing cycle | **Monthly** |
+| Amount | **29.00** USD |
+| Free trial | **7 days** |
+
+```
+Unlimited boards, Ask Euclid chat, weekly digest, custom domain and GitHub repo context. Billed monthly.
+```
+
+→ `POLAR_PRODUCT_PRO_MONTHLY=`
+
+---
+
+### 4 · Euclid Pro - Yearly
+
+| Field | Value |
+|---|---|
+| Name | `Euclid Pro - Yearly` |
+| Pricing type | Recurring |
+| Billing cycle | **Yearly** |
+| Amount | **288.00** USD |
+| Free trial | **7 days** |
+
+```
+Unlimited boards, Ask Euclid chat, weekly digest, custom domain and GitHub repo context. Billed yearly.
+```
+
+→ `POLAR_PRODUCT_PRO_YEARLY=`
+
+---
+
+### 5 · Euclid - 50 Build Prompts
+
+| Field | Value |
+|---|---|
+| Name | `Euclid - 50 Build Prompts` |
+| Pricing type | **One-time** |
+| Billing cycle | — |
+| Amount | **5.00** USD |
+| Free trial | none |
+
+```
+A one-time top-up: 50 extra Build Prompts added to your workspace. Never expires - unused prompts carry over every month.
+```
+
+→ `POLAR_TOPUP_PROMPTS_50=`
+
+---
+
+### 6 · Euclid - 200 Build Prompts
+
+| Field | Value |
+|---|---|
+| Name | `Euclid - 200 Build Prompts` |
+| Pricing type | **One-time** |
+| Billing cycle | — |
+| Amount | **15.00** USD |
+| Free trial | none |
+
+```
+A one-time top-up: 200 extra Build Prompts added to your workspace. Never expires - unused prompts carry over every month.
+```
+
+→ `POLAR_TOPUP_PROMPTS_200=`
+
+---
+
+### 7 · Euclid - 250 Ask Euclid credits
+
+| Field | Value |
+|---|---|
+| Name | `Euclid - 250 Ask Euclid credits` |
+| Pricing type | **One-time** |
+| Billing cycle | — |
+| Amount | **5.00** USD |
+| Free trial | none |
+
+```
+A one-time top-up: 250 extra chat credits, about 40 questions. Never expires - unused credits carry over every month.
+```
+
+→ `POLAR_TOPUP_CREDITS_250=`
+
+---
+
+### 8 · Euclid - 1,000 Ask Euclid credits
+
+| Field | Value |
+|---|---|
+| Name | `Euclid - 1,000 Ask Euclid credits` |
+| Pricing type | **One-time** |
+| Billing cycle | — |
+| Amount | **15.00** USD |
+| Free trial | none |
+
+```
+A one-time top-up: 1,000 extra chat credits, about 165 questions. Never expires - unused credits carry over every month.
+```
+
+→ `POLAR_TOPUP_CREDITS_1000=`
 
 The "about 40 / about 165 questions" figures come from a credit being one step
 of the Ask Euclid agent and a real question measuring four to seven steps. If
@@ -93,19 +217,53 @@ and given 60 is pleased; the reverse is a complaint.
 Both are **codeless**: the checkout route passes the discount id directly, so
 there is nothing for a customer to type and nothing that can be shared.
 
-| Name | Code | Amount | Duration | Ends | Env var |
-|---|---|---|---|---|---|
-| Launch 20% | none | −20% | **Once** (first invoice only) | 2026-11-11T16:00Z | `POLAR_DISCOUNT_FIRST_PURCHASE` |
-| Student | none | −50% | **Forever** | never | `POLAR_DISCOUNT_STUDENT` |
+- [ ] 9 · Launch 20%
+- [ ] 10 · Student
 
-Two notes:
+---
 
-- **The launch end date is from the sandbox setup and is close.** If production
-  goes live near or after 2026-11-11, pick a new one — Polar enforces the
-  window itself, which is why the app holds no date of its own.
-- These are the one pair of ids the preflight **cannot** verify, because the
-  sandbox token has no `discounts:read`. See the scopes note below — granting
-  it in production would close that gap.
+### 9 · Launch 20%
+
+| Field | Value |
+|---|---|
+| Name | `Launch 20%` |
+| Code | **none** — leave it empty |
+| Type | Percentage |
+| Amount | **20%** |
+| Duration | **Once** (first invoice only) |
+| Starts | now |
+| Ends | 2026-11-11T16:00Z — **see below** |
+
+→ `POLAR_DISCOUNT_FIRST_PURCHASE=`
+
+**That end date is carried over from sandbox and is close.** If production goes
+live near or after 2026-11-11, pick a new one. Polar enforces the window
+itself, which is why the app holds no date of its own — two places holding the
+same deadline is one place to forget.
+
+---
+
+### 10 · Student
+
+| Field | Value |
+|---|---|
+| Name | `Student` |
+| Code | **none** — leave it empty |
+| Type | Percentage |
+| Amount | **50%** |
+| Duration | **Forever** |
+| Ends | never |
+
+→ `POLAR_DISCOUNT_STUDENT=`
+
+Applied by the server once a founder has verified a school e-mail address, so
+there is no code to leak. Verifications lapse after a year.
+
+---
+
+These two ids are the one pair the preflight **cannot** verify, because the
+sandbox token has no `discounts:read` — see the scopes note in the next
+section, where granting it would close the gap.
 
 Creating them in the dashboard was unpleasant in sandbox and is worth knowing:
 the discount form ignores synthetic input, so if any automation is involved,
