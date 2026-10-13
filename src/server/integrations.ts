@@ -7,6 +7,7 @@ import {
   type IntegrationKind,
   type PostEventData,
 } from "@/lib/integrations";
+import { RETRY_MAX_ATTEMPTS, retryAfter } from "@/lib/retry";
 
 /**
  * Delivering integration events.
@@ -19,8 +20,14 @@ import {
 /** Chat webhooks are small; a slow one should not hold a worker for long. */
 const DELIVERY_TIMEOUT_MS = 8_000;
 
-/** Give up after this many tries, so a dead webhook stops costing us work. */
-const MAX_ATTEMPTS = 5;
+/**
+ * Give up after this many tries, so a dead webhook stops costing us work.
+ *
+ * Shared with the email outbox rather than kept here: both queues are drained
+ * by the same `drainAfterResponse`, and two different ideas of how long to
+ * keep trying would be two different answers to the same question.
+ */
+const MAX_ATTEMPTS = RETRY_MAX_ATTEMPTS;
 
 interface ClaimedDelivery {
   id: string;
@@ -107,9 +114,7 @@ export async function deliverIntegrationEvents(limit = 20): Promise<DeliveryResu
         last_error: outcome.error.slice(0, 500),
         // Back off so a service having a bad hour is retried later, not
         // hammered. 1, 4, 9, 16 minutes.
-        deliver_after: new Date(
-          Date.now() + delivery.attempts * delivery.attempts * 60_000,
-        ).toISOString(),
+        deliver_after: retryAfter(delivery.attempts),
       })
       .eq("id", delivery.id);
 

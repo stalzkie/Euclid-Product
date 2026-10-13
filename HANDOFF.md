@@ -11,19 +11,23 @@ Everything in the PRD is built, plus billing and student verification, which
 the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
-npm run verify            # typecheck + lint + 439 unit tests
+npm run verify            # typecheck + lint + 446 unit tests
 npm run test:integration  # 57 tests, needs the app running
 npm run test:e2e          # 14 browser tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at 2026-10-13: **439 unit tests across 20 files**, **57 integration
+Counts at 2026-10-13: **446 unit tests across 21 files**, **57 integration
 tests**, **14 browser tests across 3 specs**, lint clean with zero warnings.
 
-**Thirteen migrations, all applied to the live database.** `0011_billing`,
+**Fifteen migrations, all applied to the live database.** `0011_billing`,
 `0012_student` and `0013_workspace_bootstrap` were confirmed present in
 production by querying `pg_proc` for `apply_subscription`, `verify_student`
-and `create_workspace`.
+and `create_workspace`. `0014_definer_search_path` was confirmed by checking
+that `gen_public_id` no longer calls `gen_random_bytes`, and
+`0015_email_retry` by the three new `email_outbox` columns and
+`claim_queued_emails`. (This section said "thirteen" while 0014 was already
+on disk and live; counts drift, so check rather than trust the number.)
 
 Recent commits: `d2c20fe` motion across every screen, `fb3c615` Polar billing
 and the student discount, `3babf4e` the auth code exchange.
@@ -97,8 +101,13 @@ Ordered by what actually blocks a launch. Detail for each is further down.
 3. **Send one student verification email.** Same shape of gap: the redeem path
    works in production, the mailing leg has never run.
 
-4. **On Pro, change `/api/jobs/run` to `*/10 * * * *`.** Hobby caps a cron at
-   daily and fails the deploy if one would run more often.
+4. **Nothing is waiting on a more frequent cron any more.** Changing
+   `/api/jobs/run` to `*/10 * * * *` needs Vercel Pro, and the founder has
+   decided against paying for that for now (2026-10-13). The reason it was on
+   this list is gone: `0015_email_retry` gave `email_outbox` the retry columns
+   the delivery queue already had, so a failed email is retried by whichever
+   request next calls `drainAfterResponse` rather than waiting for the
+   scheduler. See "Retries no longer depend on the scheduler" below.
 
 **Browser E2E is done** — 14 Playwright specs, in the CI job that already
 stands up Supabase. It found two real widget bugs on its first run; see
@@ -287,7 +296,44 @@ stands up Supabase. It found two real widget bugs on its first run; see
    (`blocks` and mrkdwn, not `embeds`), so Discord working says nothing about
    it.
 
-6. **The moderation queue holds nothing on the real board.** The integration
+6. **Retries no longer depend on the scheduler.** `email_outbox` had no
+   `attempts`, no `deliver_after` and no `last_error`: a row was selected on
+   `sent_at is null`, and a failed send was simply left there for the next
+   drain. The only thing guaranteed to drain it is the daily cron, and a magic
+   link expires an hour after it is created — so a single transient Resend
+   failure meant the sign-in could not happen at all, and the retry, when it
+   came, carried a dead token.
+
+   `0015_email_retry` adds those three columns and `claim_queued_emails`,
+   mirroring `claim_integration_deliveries`. The schedule both queues share
+   now lives in `src/lib/retry.ts` — 1, 4, 9 and 16 minutes, chosen so every
+   attempt lands inside the magic link's hour, with `tests/unit/retry.test.ts`
+   holding that bound.
+
+   Claiming is the other half, and it fixes a bug nobody had noticed:
+   `sendQueuedEmails` used a plain select, while `drainAfterResponse` fires on
+   every post, magic link and changelog publish. Two overlapping requests could
+   pick up the same unsent row and both send it — two sign-in links to one
+   person, or a voter told twice that their request shipped. `for update skip
+   locked` plus the attempt increment makes a row claimable exactly once.
+
+   Verified against the live database: a queued email with a deliberately bad
+   Resend key came back `attempts=1`, unsent, with the 401 recorded, and an
+   immediate second drain reported `failed: 0` — it refused to reclaim the row
+   because the backoff had not elapsed.
+
+   **Known, and deliberately not fixed:** `deliver_after` is computed with the
+   *app server's* clock (`retryAfter` defaults `now` to `new Date()`) while
+   `deliver_after <= now()` is evaluated with the *database's*. The proof run
+   above measured a 185-second gap where 60 was intended, which is this
+   machine's two-minute skew. On a deployed server with NTP the two agree
+   closely, and the delivery queue has always worked the same way, so this is
+   a bounded inaccuracy rather than a fault — but a server whose clock ran
+   *behind* the database's would compute a `deliver_after` already in the past
+   and retry without backing off. Computing it in SQL (`now() + interval`)
+   would remove the skew entirely, and is the fix if this ever matters.
+
+7. **The moderation queue holds nothing on the real board.** The integration
    test covers the code path; no real post has ever been held for approval.
 
 ## Speed
@@ -433,6 +479,13 @@ pre-commit scan before anything was pushed.
   says. Testing a blank-variable code path means running from a directory
   with its own `.env.local`, not a shell prefix. This cost a mutation check
   that appeared to pass.
+
+- **Both outboxes share one retry schedule** (`src/lib/retry.ts`) and one
+  claim pattern. They are drained by the same `drainAfterResponse`, so two
+  different ideas of how long to keep trying would be two answers to one
+  question. `RETRY_MAX_ATTEMPTS` is mirrored as `attempts < 5` inside both
+  claim functions in SQL; a unit test pins the constant so the two cannot
+  drift without something saying so.
 
 - **The Supabase client is untyped.** There is no generated `Database` type,
   so new tables need no type regeneration — but also get no compile-time

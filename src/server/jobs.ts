@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
 import { generateDigest } from "@/lib/ai/clustering";
 import { hasAnthropic } from "@/lib/ai/client";
+import { retryAfter, retriesLeft } from "@/lib/retry";
 
 /**
  * Background work. Anything slow or expensive runs here so board reads stay
@@ -13,39 +14,78 @@ export interface EmailResult {
   failed: number;
 }
 
+/** One claimed row, as `claim_queued_emails` returns it. */
+interface ClaimedEmail {
+  id: string;
+  to_email: string;
+  subject: string;
+  body: string;
+  kind: string;
+  attempts: number;
+}
+
 /**
  * Drains the email outbox. Without a provider configured it logs instead of
  * sending, so the loop is testable end to end before a mailer exists.
+ *
+ * Rows are claimed rather than selected. `drainAfterResponse` runs on every
+ * post, magic link and changelog publish, so two overlapping requests could
+ * otherwise pick up the same unsent row and both send it — two sign-in links
+ * to one person, or the same voter told twice that their request shipped.
+ *
+ * A failure is left with a backoff rather than retried on the very next pass,
+ * which is what makes recovery independent of how often the scheduler runs.
+ * `src/lib/retry.ts` holds the schedule and the reasoning behind it.
  */
 export async function sendQueuedEmails(limit = 50): Promise<EmailResult> {
   const db = supabaseAdmin();
-  const { data: queued } = await db
-    .from("email_outbox")
-    .select("id,to_email,subject,body,kind")
-    .is("sent_at", null)
-    .order("created_at")
-    .limit(limit);
+  const { data: claimed } = await db.rpc("claim_queued_emails", { p_limit: limit });
+  const batch = (claimed ?? []) as ClaimedEmail[];
 
-  if (!queued?.length) return { sent: 0, failed: 0 };
+  if (!batch.length) return { sent: 0, failed: 0 };
 
   let sent = 0;
   let failed = 0;
 
-  for (const email of queued) {
-    const ok = await deliver(email);
-    if (ok) {
+  for (const email of batch) {
+    const outcome = await deliver(email);
+
+    if (outcome.ok) {
       await db
         .from("email_outbox")
-        .update({ sent_at: new Date().toISOString() })
+        .update({ sent_at: new Date().toISOString(), last_error: null })
         .eq("id", email.id);
       sent += 1;
-    } else {
-      failed += 1;
+      continue;
+    }
+
+    failed += 1;
+
+    // The claim already counted this attempt, so `attempts` includes the one
+    // that just failed. Past the limit the row stops being claimable and the
+    // error it died of is what is left behind: there is nothing to deactivate
+    // the way a dead webhook deactivates its integration, and a mailbox that
+    // has refused five times is not one more attempt away from working.
+    await db
+      .from("email_outbox")
+      .update({
+        last_error: outcome.error.slice(0, 500),
+        deliver_after: retryAfter(email.attempts),
+      })
+      .eq("id", email.id);
+
+    if (!retriesLeft(email.attempts)) {
+      console.warn(
+        `[euclid] email abandoned after ${email.attempts} attempts: ${outcome.error}`,
+      );
     }
   }
 
   return { sent, failed };
 }
+
+/** What one attempt did. The reason is stored, so it has to come back. */
+type Delivery = { ok: true } | { ok: false; error: string };
 
 /**
  * One delivery. Resend is the provider when RESEND_API_KEY is set; otherwise
@@ -56,7 +96,7 @@ async function deliver(email: {
   to_email: string;
   subject: string;
   body: string;
-}): Promise<boolean> {
+}): Promise<Delivery> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
 
@@ -64,7 +104,7 @@ async function deliver(email: {
     console.info(
       `[euclid] email not sent (no provider configured)\n  to: ${email.to_email}\n  subject: ${email.subject}`,
     );
-    return true;
+    return { ok: true };
   }
 
   try {
@@ -82,13 +122,14 @@ async function deliver(email: {
       }),
     });
     if (!res.ok) {
-      console.warn(`[euclid] email failed: ${res.status} ${await res.text()}`);
-      return false;
+      const error = `${res.status} ${await res.text()}`;
+      console.warn(`[euclid] email failed: ${error}`);
+      return { ok: false, error };
     }
-    return true;
+    return { ok: true };
   } catch (err) {
     console.warn("[euclid] email failed:", err);
-    return false;
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
