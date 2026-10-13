@@ -63,8 +63,13 @@ jobs:
   # The public API against a real Postgres, PostgREST and auth stack. Nothing
   # is mocked, because the bugs worth catching live between the route, the SQL
   # and the identity rules.
+  #
+  # The browser suite rides on the same stack. Standing up Supabase, applying
+  # the migrations, building and serving the app is the whole expense, and it
+  # is already paid for here: Playwright is a few more steps at the end of
+  # this job, not a second environment.
   integration:
-    name: Integration tests
+    name: Integration and browser tests
     runs-on: ubuntu-latest
     needs: static
     # Job-level, so the app and the tests cannot disagree about them. The
@@ -133,6 +138,31 @@ jobs:
           TEST_SUPABASE_URL: ${{ steps.creds.outputs.url }}
           TEST_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
         run: npm run test:integration
+
+      # Chromium only, which is what playwright.config.ts asks for. `--with-deps`
+      # installs the shared libraries headless Chrome needs on a bare runner.
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser end-to-end tests
+        env:
+          TEST_APP_URL: http://localhost:3000
+          TEST_SUPABASE_URL: ${{ steps.creds.outputs.url }}
+          TEST_SERVICE_ROLE_KEY: ${{ steps.creds.outputs.service }}
+        run: npm run test:e2e
+
+      # Traces and screenshots for the failures, which is the difference
+      # between reading a CI log and seeing what the page actually looked like.
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Dump app logs on failure
         if: failure()

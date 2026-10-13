@@ -12,12 +12,13 @@ the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
 npm run verify            # typecheck + lint + 439 unit tests
-npm run test:integration  # 52 tests, needs the app running
+npm run test:integration  # 57 tests, needs the app running
+npm run test:e2e          # 14 browser tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at 2026-10-13: **439 unit tests across 20 files**, **52 integration
-tests**, lint clean with zero warnings.
+Counts at 2026-10-13: **439 unit tests across 20 files**, **57 integration
+tests**, **14 browser tests across 3 specs**, lint clean with zero warnings.
 
 **Thirteen migrations, all applied to the live database.** `0011_billing`,
 `0012_student` and `0013_workspace_bootstrap` were confirmed present in
@@ -84,15 +85,12 @@ Ordered by what actually blocks a launch. Detail for each is further down.
 3. **Send one student verification email.** Same shape of gap: the redeem path
    works in production, the mailing leg has never run.
 
-4. **Browser E2E.** The expensive part is already built — the CI integration
-   job stands up a local Supabase, applies migrations, builds and runs the app.
-   Playwright is a job extension, not new infrastructure. Highest-value specs:
-   the widget mounting in Shadow DOM (never exercised by anything —
-   `scripts/widget-e2e.mjs` is a `fetch` script that never opens a page), then
-   post/vote/comment as an end user, then signup -> dashboard.
-
-5. **On Pro, change `/api/jobs/run` to `*/10 * * * *`.** Hobby caps a cron at
+4. **On Pro, change `/api/jobs/run` to `*/10 * * * *`.** Hobby caps a cron at
    daily and fails the deploy if one would run more often.
+
+**Browser E2E is done** — 14 Playwright specs, in the CI job that already
+stands up Supabase. It found two real widget bugs on its first run; see
+"Browser tests" below.
 
 ## What is left
 
@@ -195,11 +193,64 @@ Ordered by what actually blocks a launch. Detail for each is further down.
    Note the panel only appears when `POLAR_DISCOUNT_STUDENT` is set, so on a
    deployment without it this is invisible rather than broken.
 
-4. **Test coverage gaps.** Integration tests cover `/api/public/*`,
-   `/api/mcp`, custom-domain routing and integration delivery. The dashboard
-   server actions are covered only by unit tests on their pure logic. There
-   is no browser-level end-to-end test (there is `scripts/widget-e2e.mjs`,
-   a manual harness).
+4. **Browser tests exist now, and they found two real bugs.**
+   `tests/e2e/`, 14 specs over Chromium, driven by `playwright.config.ts` and
+   run in CI as the last steps of the integration job — the same local
+   Supabase, the same built app, so Playwright cost a few steps rather than a
+   second environment.
+
+   What they cover: the widget mounting in a Shadow DOM on a deliberately
+   hostile host page, the launcher and the frame's `euclid:height` handshake,
+   inline mode, vote/post/comment as an anonymous end user, the duplicate
+   nudge, the honeypot, and a real magic-link sign-in through
+   `/auth/callback` -> `/auth/hash` -> `/auth/land` into the dashboard.
+
+   **Two bugs, both in `public/widget.js`, both invisible to anything that
+   does not open a page:**
+
+   - **Escape never closed the floating panel.** The loader focuses the iframe
+     when the panel opens, so every keypress after that landed in the frame's
+     document and the host page's `keydown` listener never heard it. Fixed by
+     having the embedded board post `euclid:close` to the parent — the channel
+     `euclid:height` already uses — with the loader closing the panel and
+     returning focus to the launcher.
+   - **Inline mode did not mount where the founder asked.** `mountInline()`
+     appended the host element into the founder's container and then an
+     unconditional `document.documentElement.appendChild(host)` immediately
+     moved it back out, so the board rendered at the end of the document. The
+     append now happens only in floating mode, where a fixed-position panel
+     belongs outside the host page's layout.
+
+   Both fixes are held by specs that failed before them. The honeypot spec was
+   mutation-checked the usual way: with the check in `submitPost` disabled it
+   fails, and the Shadow DOM style assertion first proves the host page's
+   Comic Sans rule still reaches a plain light-DOM button, so it cannot pass
+   by the rule having quietly stopped applying.
+
+   **Running them locally** needs a built app, not `next dev`:
+   `npx next build && npm run start`, then `npm run test:e2e`. They read the
+   same env as the integration suite and print their target before starting.
+   With no Docker on this machine that target is the production Supabase
+   project: each run creates one workspace, one board, two posts and one auth
+   user, and deletes all of it afterwards — including the auth user, which the
+   workspace cascade cannot reach.
+
+   `supabase/config.toml` needed a fix for this. Its `site_url` was
+   `http://127.0.0.1:3000` and `additional_redirect_urls` was
+   `["https://127.0.0.1:3000"]`, so a magic link aimed at
+   `http://localhost:3000/auth/callback` was not allow-listed — and GoTrue does
+   not refuse an unlisted `redirect_to`, it silently substitutes `site_url`.
+   Both now name localhost with a wildcard path. The fixture checks the
+   generated link's `redirect_to` and says so by name rather than timing out on
+   a dashboard assertion.
+
+   **Still not covered:** the dashboard server actions have only unit tests on
+   their pure logic. The JWT identity path (`window.EuclidIdentity` ->
+   `&token=` -> "Posting as …") has unit tests and
+   `scripts/test-identity.mjs`, but no browser spec; it is the cheapest next
+   one to add, needing a board with `identity_mode: "jwt"` and `EUCLID_SECRET`
+   shared with the server. Slack's payload shape is still unexercised
+   end to end. `scripts/widget-e2e.mjs` remains as a manual API harness.
 
 5. **A real Discord webhook has now received messages.** On 2026-10-13 all
    three shapes were delivered to a live webhook and accepted with `204 No
@@ -338,6 +389,26 @@ pre-commit scan before anything was pushed.
   caps what it reads. `tests/unit/site-palette.test.ts` covers each of those;
   the redirect check in particular was written by removing it and watching a
   test fail.
+- **The board's vote is optimistic.** `PublicBoardView.vote` rolls the digits
+  before the request has gone anywhere and rolls them back if it fails, so the
+  number on screen says nothing about what was stored. A test that reloads on
+  the strength of it cancels the very request it is about — which is exactly
+  what happened, and why each click in the vote spec waits for its own
+  response.
+
+- **The hosted board opens on the roadmap, not on ideas.** `/b/<id>` defaults
+  to `roadmap`; `?tab=ideas` or a click is what shows the list and the submit
+  panel. Worth knowing before concluding a board is empty.
+
+- **A post row inserted straight into the table has no embedding**, so the
+  semantic duplicate pass cannot find it, and because that pass replaces
+  whatever the keyword pass put up, a nudge appears and then vanishes. Test
+  fixtures that care about duplicates post through `/api/public/post` instead.
+
+- **Nothing in the UI links to `/auth/signout`.** The route exists, is POST
+  only, and has no button anywhere — the browser spec posts to it directly.
+  Signing out is currently not something a founder can do from the product.
+
 - **The Supabase client is untyped.** There is no generated `Database` type,
   so new tables need no type regeneration — but also get no compile-time
   checking. Row shapes are asserted at the call site.
@@ -385,7 +456,13 @@ were strengthened only because a mutation slipped past them:
 
 Unit tests live in `tests/unit` and need nothing running. Integration tests
 live in `tests/integration`, drive real HTTP against a real database, and
-skip rather than fail when nothing is up.
+skip rather than fail when nothing is up. Browser tests live in `tests/e2e`
+and share that harness's `db` helpers and env contract; unlike the
+integration suite they **fail** rather than skip when no database is
+configured, because nobody runs `npm run test:e2e` by accident. They run
+serially with no retries, for the same reasons: one shared database, and a
+spec that passes on the second attempt is one nobody will trust on the
+first.
 
 ## Decisions the founder has confirmed
 

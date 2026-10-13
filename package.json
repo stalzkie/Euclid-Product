@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
     "test:coverage": "vitest run --coverage",
     "verify": "npm run typecheck && npm run lint && npm run test",
     "lint:fix": "eslint . --fix"
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^22.18.1",
     "@types/react": "^19.1.13",

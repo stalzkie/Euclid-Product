@@ -54,13 +54,15 @@
   </main>
 
   <script>
-    // Let the test page switch modes without editing the snippet.
-    var mode = new URLSearchParams(location.search).get("mode") === "inline"
-      ? "inline" : "floating";
+    // Let the test page switch modes without editing the snippet. `board` is
+    // here for the same reason: the browser suite mounts the widget against a
+    // throwaway board it created, not the seeded one.
+    var q = new URLSearchParams(location.search);
+    var mode = q.get("mode") === "inline" ? "inline" : "floating";
     var s = document.createElement("script");
     s.src = "/widget.js";
     s.async = true;
-    s.dataset.board = "brd_8f2k1x";
+    s.dataset.board = q.get("board") || "brd_8f2k1x";
     s.dataset.mode = mode;
     s.dataset.accent = "#7C3AED";
     document.body.appendChild(s);

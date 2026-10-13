@@ -11,6 +11,9 @@ design-reference/
 coverage/
 .vitest/
 test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Supabase CLI local state
 supabase/.branches/
