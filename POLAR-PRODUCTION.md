@@ -275,29 +275,60 @@ element clicked directly.
 
 ## 3. An organisation access token
 
-**Settings → Developers → New token**, never expiring, scoped to the
+**Settings → Developers → Create token**, never expiring, scoped to the
 production org.
 
-The sandbox token carries enough to run the app and the preflight:
+Polar offers 58 scopes. Tick six. The names below are copied from the token
+dialog, so they are exact.
 
-- `products:read` — the preflight reads all eight products
-- `products:write` — only needed if products are created via the API rather
-  than the dashboard
-- `checkouts:write` — the checkout and top-up routes create checkouts
+### Required — the app will not work without these
 
-**Consider granting three more than sandbox has.** Their absence is why
-several things could only be checked by hand this time:
+| Scope | What needs it |
+|---|---|
+| `checkouts:write` | `checkouts.create` — every upgrade and every top-up |
+| `customer_sessions:write` | `customerSessions.create` — the "Manage billing" portal button |
 
-- `discounts:read` — would let the preflight verify the two discount ids
-- `orders:read` — would let an order's real shape be inspected without a purchase
-- `webhooks:read` — would let the event subscription in step 4 be verified from
-  a script rather than a screenshot
+That is genuinely all the running app calls. Webhook deliveries are
+authenticated by `POLAR_WEBHOOK_SECRET`, not by this token, so no scope covers
+them.
 
-Goes into `POLAR_ACCESS_TOKEN`. Note that in sandbox, **every token operation
-sat behind a "please sign in again" gate** unless the browser session was
-minutes old.
+### Strongly recommended — the preflight uses these
 
----
+| Scope | What it buys |
+|---|---|
+| `products:read` | `polar-preflight.mjs` checks all eight products: right interval, not archived, priced, one organisation, trial matching `POLAR_TRIAL_DAYS` |
+| `discounts:read` | lets it check the two discount ids too — the sandbox token lacks this, which is why those are the one pair it reports as unverifiable |
+
+### Worth adding — each one closes a gap that cost time in sandbox
+
+| Scope | What it buys |
+|---|---|
+| `webhooks:read` | verify the endpoint's event subscription from a script. **This is the one that matters.** The first top-up purchase granted nothing because `order.paid` was not ticked, and with this scope that is a one-line check instead of a debugging session |
+| `orders:read` | inspect a real order's shape, and confirm a purchase landed, without opening the dashboard |
+| `products:write` | only if you create the eight products through the API rather than the form. Not needed otherwise |
+
+### Do not grant the rest
+
+Especially `payouts:write`, `transactions:write`, `refunds:write`,
+`organizations:write`, `wallets:write`, `customers:write` and `user:write`.
+This token sits in Vercel's environment and in `.env.local`; a leaked token
+that can read products is a bad afternoon, and one that can move money is a
+different category of problem entirely.
+
+### Copy-paste summary
+
+```
+checkouts:write
+customer_sessions:write
+products:read
+discounts:read
+webhooks:read
+orders:read
+```
+
+Goes into `POLAR_ACCESS_TOKEN`. One warning from sandbox: **every token
+operation sat behind a "please sign in again" gate** unless the browser
+session was only minutes old, so expect to re-authenticate.
 
 ## 4. A webhook endpoint — and the part that silently breaks
 
