@@ -103,12 +103,18 @@
     origin + "/embed/" + encodeURIComponent(board) + "?mode=" + mode;
 
   if (mode === "inline") {
+    // Inline mounts itself, into the container the founder put on the page.
+    // This used to be followed by an unconditional
+    // `document.documentElement.appendChild(host)`, which moved the host
+    // element straight back out again — so inline mode rendered the board at
+    // the end of the document rather than where it was asked for. Nothing
+    // caught it, because nothing opened a page.
     mountInline();
   } else {
     mountFloating();
+    // Floating is fixed-position and belongs outside the host page's layout.
+    document.documentElement.appendChild(host);
   }
-
-  document.documentElement.appendChild(host);
 
   /* ---------------------------------------------------------------------- */
 
@@ -187,8 +193,23 @@
     });
 
     // Escape closes it, which keyboard users expect.
+    //
+    // Two listeners, because the panel is an iframe and a keypress only ever
+    // reaches one document. This one catches Escape while focus is still on
+    // the host page; the board inside the frame posts `euclid:close` for the
+    // case that actually happens, since opening moves focus into the frame.
+    // With only this listener Escape did nothing at all for the keyboard user
+    // it was written for, which no `fetch`-level test could have noticed.
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && open) setOpen(false);
+    });
+
+    listenForClose(function () {
+      if (!open) return;
+      setOpen(false);
+      // Focus came from the launcher, so it goes back there rather than being
+      // left inside a panel that is no longer on screen.
+      launcher.focus();
     });
 
     root.appendChild(panel);
@@ -240,6 +261,15 @@
       if (data && data.type === "euclid:height" && typeof data.height === "number") {
         apply(data.height);
       }
+    });
+  }
+
+  /* Escape pressed inside the frame, where the host page cannot hear it. */
+  function listenForClose(apply) {
+    window.addEventListener("message", function (event) {
+      if (event.origin !== origin) return;
+      var data = event.data;
+      if (data && data.type === "euclid:close") apply();
     });
   }
 

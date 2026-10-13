@@ -46,6 +46,22 @@ export function EmbeddedBoard({
     return () => observer.disconnect();
   }, []);
 
+  // Escape, forwarded to the loader so it can close the floating panel.
+  //
+  // The loader focuses this frame as soon as the panel opens, so every
+  // keypress after that lands in this document and never reaches the host
+  // page's own Escape handler. Without this the panel could not be closed
+  // from the keyboard at all.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (window.parent === window) return;
+      window.parent.postMessage({ type: "euclid:close" }, "*");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const vote = async (postId: string) => {
     const res = await fetch("/api/public/vote", {
       method: "POST",
