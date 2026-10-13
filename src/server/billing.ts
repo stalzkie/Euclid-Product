@@ -96,6 +96,27 @@ export async function applyTopup(
   };
 }
 
+/**
+ * Reverse a top-up because Polar reported its order refunded.
+ *
+ * Keyed on the order id alone: the ledger already knows which workspace it
+ * credited and with what, so nothing here has to re-derive entitlement from a
+ * product id. An order we never granted for — a refunded subscription
+ * invoice, say — is not an error, it simply has no ledger row.
+ *
+ * Partial refunds are treated as full reversals. A top-up is a single
+ * indivisible pack, so there is no sensible fraction of one to give back, and
+ * erring towards the customer's money rather than ours is the right way round.
+ */
+export async function reverseTopup(
+  orderId: string,
+): Promise<{ ok: true; reversed: boolean } | { ok: false; error: string }> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.rpc("reverse_topup", { p_order_id: orderId });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, reversed: data === true };
+}
+
 /** What a webhook told us about one subscription, narrowed to what we store. */
 export interface SubscriptionState {
   subscriptionId: string;

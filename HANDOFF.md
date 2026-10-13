@@ -72,8 +72,20 @@ Ordered by what actually blocks a launch. Detail for each is further down.
 
 1. **Flip Polar from sandbox to production.** The live site currently points at
    sandbox, which is safe only because the sole workspace is the founder's own.
-   Needs: four products recreated in the production org, both discounts
-   recreated, `POLAR_SERVER=production`, and all six ids swapped **together** —
+
+   **Blocked on Polar's own review, as of 2026-10-13.** A production org
+   exists at `polar.sh/dashboard/euclid`, but Finance → Account shows "Account
+   Review · Verify your business so customers can buy from you", 5 of 7
+   required steps done, with "Create your first product" and "Set up checkout"
+   outstanding and a **Submit for review** button not yet pressed. Until Polar
+   approves, a real checkout cannot complete whatever the app is configured
+   with. Submitting identity and business details is the founder's to do.
+
+   Needs: **ten** ids now, not six — four plan products, two discounts and the
+   four top-up packs — all recreated in the production org, plus
+   `POLAR_SERVER=production`, a production token, and a production webhook
+   endpoint with `order.paid` and `order.refunded` ticked. All swapped
+   **together** —
    sandbox and production are separate accounts, and a mismatched id makes
    every webhook fail closed with "Unknown Polar product". Polar also has to
    finish payout/KYC before a real checkout can complete, which is not instant
@@ -456,17 +468,38 @@ were deleted afterwards.
 The Polar webhook endpoint subscribes to a list of event types, and it had
 only the eleven `subscription.*` events ticked. `order.paid` was never sent —
 no request reached the server at all, so there was nothing to debug in the
-app. `order.paid` is now ticked on the sandbox endpoint. **It will have to be
+app. `order.paid` is now ticked on the sandbox endpoint. **Both `order.paid` and `order.refunded` will have to be
 ticked again on the production endpoint**, and that is invisible from the
 code: the app looks correct, the checkout completes, the customer is charged,
-and nothing happens. The token cannot read webhook settings either
+and nothing happens.
+
+Setting them is fiddlier than it looks. A synthetic `.click()` on the toggle
+flips `aria-checked` and the hidden input and still does not reach the form
+state, so Save writes the old set back — the same synthetic-input problem this
+document already records for the discount form. It takes a real click at the
+checkbox's on-screen position, read off a screenshot rather than computed from
+`getBoundingClientRect`, which disagreed with where the element actually was. The token cannot read webhook settings either
 (`webhooks:read` is missing like `discounts:read` and `orders:read`), so this
 can only be checked in the dashboard.
 
-**Refunds are not handled.** `order.refunded` is deliberately not subscribed:
-a refunded top-up currently keeps its credit, because nothing reverses a
-grant. Worth closing before real money, and it needs a thought about what to
-do when the balance has already been spent.
+**Refunds give the balance back.** `0017_topup_refunds` adds `refunded_at` to
+the ledger and `reverse_topup`, and the webhook handles `order.refunded`.
+`refunded_at` is both the record and the idempotency key, the mirror of the
+unique `polar_order_id` on the way in — Polar retries until it gets a 2xx, so
+a refund arriving twice would otherwise take the balance down by double.
+
+**A refund floors the balance at zero rather than going negative.** Someone
+who bought 50 prompts, used 30 and then refunded keeps the 30 they have
+already spent — there is no un-generating those briefs — and loses the 20 they
+had left. Negative would hold their *next* purchase hostage to the old one,
+which is a worse answer to a situation they are entitled to be in.
+`spendAllowance` floors for the same reason. Partial refunds are treated as
+full reversals: a pack is indivisible, and erring towards the customer's money
+is the right way round.
+
+Proven against the live database: grant 50 -> reverse -> 0; reverse again
+returns false and leaves it at 0; an unknown order returns false; and the
+partially-spent case floors at 0 instead of -30.
 
 ## Speed
 
@@ -601,9 +634,12 @@ pre-commit scan before anything was pushed.
   whatever the keyword pass put up, a nudge appears and then vanishes. Test
   fixtures that care about duplicates post through `/api/public/post` instead.
 
-- **Nothing in the UI links to `/auth/signout`.** The route exists, is POST
-  only, and has no button anywhere — the browser spec posts to it directly.
-  Signing out is currently not something a founder can do from the product.
+- **Signing out is a form, not a link.** `/auth/signout` is POST only — a GET
+  that destroys a session can be triggered by any image tag on any page — so
+  the sidebar posts a real form to it, which also means it works with no
+  client JavaScript. The route existed from the beginning with nothing linking
+  to it, so until 2026-10-13 a founder could not sign out of the product at
+  all.
 
 - **`loadEnv` cannot be overridden with an empty value.** `scripts/env.mjs`
   writes a key only `if (!process.env[key])`, and `""` is falsy — so

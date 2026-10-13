@@ -197,6 +197,25 @@ export function Sidebar({
             <Icon name="bell" size={16} />
             <NotificationDot show />
           </Link>
+          {/*
+            Signing out. A plain form rather than a link or a click handler:
+            `/auth/signout` is POST only — it has to be, since a GET that
+            destroys a session can be triggered by any image tag on any page —
+            and this keeps it working with no client JavaScript at all.
+
+            The route has existed since the beginning and nothing ever linked
+            to it, so until now a founder could not sign out of the product.
+          */}
+          <form action="/auth/signout" method="post">
+            <button
+              type="submit"
+              aria-label="Sign out"
+              title="Sign out"
+              className="eu-press flex h-7 w-7 items-center justify-center rounded-[7px] text-ink-2 hover:bg-muted"
+            >
+              <Icon name="external" size={16} />
+            </button>
+          </form>
         </RailOnlyWide>
       </div>
     </nav>

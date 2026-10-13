@@ -1,7 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { webhooks } from "@polar-sh/sdk/2027-01";
 import { hasServiceRole } from "@/lib/supabase/server";
-import { applySubscription, applyTopup, type SubscriptionState } from "@/server/billing";
+import {
+  applySubscription,
+  applyTopup,
+  reverseTopup,
+  type SubscriptionState,
+} from "@/server/billing";
 
 /**
  * Polar's webhook. The only thing in the system allowed to move a workspace
@@ -30,21 +35,49 @@ const SUBSCRIPTION_EVENTS = new Set([
 ]);
 
 /**
- * One-time purchases: the top-up packs.
+ * One-time purchases: the top-up packs, and giving them back.
  *
- * Only `order.paid`. The other order events fire before the money has settled,
- * and a top-up is an increment rather than a state — granting on
- * `order.created` and again on `order.paid` would be two grants for one
- * purchase. `apply_topup` would catch that, since both carry the same order
- * id, but relying on the idempotency key to paper over a wrong event choice
- * is how the key ends up being the only thing holding it together.
+ * `order.paid` and nothing earlier. The other order events fire before the
+ * money has settled, and a top-up is an increment rather than a state —
+ * granting on `order.created` and again on `order.paid` would be two grants
+ * for one purchase. `apply_topup` would catch that, since both carry the same
+ * order id, but relying on the idempotency key to paper over a wrong event
+ * choice is how the key ends up being the only thing holding it together.
  *
  * A subscription renewal also produces an order. That order's product is a
  * plan product, not a top-up pack, so `topupForProduct` returns null and this
  * grants nothing — which is why it fails closed on an unknown product rather
  * than guessing.
+ *
+ * Both of these must also be ticked on the Polar webhook endpoint itself. An
+ * unsubscribed event is never sent at all, and the first top-up purchase
+ * granted nothing for exactly that reason — the checkout completed, the card
+ * was charged, and no request ever reached this route.
  */
-const ORDER_EVENTS = new Set(["order.paid"]);
+const ORDER_EVENTS = new Set(["order.paid", "order.refunded"]);
+
+/**
+ * A refunded order gives back whatever it granted.
+ *
+ * Keyed on the order id, so an order that never granted anything -- a
+ * refunded subscription invoice, for instance -- finds no ledger row and is
+ * acknowledged without doing anything.
+ */
+async function handleRefund(event: { type: string; data: unknown }) {
+  const order = event.data as { id: string };
+  const result = await reverseTopup(order.id);
+
+  if (!result.ok) {
+    console.error(`[billing] ${event.type}: ${result.error}`);
+    return NextResponse.json({ error: result.error }, { status: 422 });
+  }
+
+  console.info(
+    `[billing] ${event.type}: ${result.reversed ? "reversed" : "nothing to reverse"} ` +
+      `for order ${order.id}`,
+  );
+  return NextResponse.json({ ok: true, reversed: result.reversed });
+}
 
 async function handleOrder(event: { type: string; data: unknown }) {
   // `product_id` is nullable on Polar's Order — an order assembled from line
@@ -107,6 +140,10 @@ export async function POST(request: NextRequest) {
     event = await webhooks.validateEvent(body, headers, secret);
   } catch {
     return NextResponse.json({ error: "Bad signature" }, { status: 403 });
+  }
+
+  if (event.type === "order.refunded") {
+    return handleRefund(event);
   }
 
   if (ORDER_EVENTS.has(event.type)) {
