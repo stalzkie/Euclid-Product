@@ -75,6 +75,18 @@ Ordered by what actually blocks a launch. Detail for each is further down.
    finish payout/KYC before a real checkout can complete, which is not instant
    and is worth starting early.
 
+   **Run `node scripts/polar-preflight.mjs` before and after.** It asks Polar
+   what the configured ids actually are, on whichever server `POLAR_SERVER`
+   names, and exits non-zero if the environment could not sell correctly. It
+   catches the whole failure mode in one call: a production id read against
+   sandbox is a 404, a sandbox token used against production is a 401, and —
+   the one nothing else would catch — a monthly and a yearly id swapped between
+   slots resolve perfectly well and quietly sell the wrong billing period.
+   It also checks that all four products sit in one organisation, that none is
+   archived or unpriced, that no two slots share an id, and that the trial on
+   the products matches `POLAR_TRIAL_DAYS`, which is what the upgrade button
+   promises. Green against sandbox today.
+
 2. **Exercise the integration outbox.** Post on the live board and confirm
    Discord fires within seconds. `sendTestMessage` and the manual script both
    call `postToWebhook` directly, so `enqueueIntegrationEvent` ->
@@ -181,7 +193,13 @@ stands up Supabase. It found two real widget bugs on its first run; see
    **The deployment is pointed at sandbox Polar.** Before real customers, swap
    `POLAR_SERVER` to `production` *and* the four product ids together — they
    are separate accounts, and mismatched ids make every webhook fail closed
-   with "Unknown Polar product".
+   with "Unknown Polar product". `scripts/polar-preflight.mjs` is the check
+   for exactly that; see item 1 under "Start here".
+
+   The preflight cannot verify the two discount ids. The organisation token
+   has no `discounts:read`, so it says so rather than reporting a green tick
+   over something it never looked at. A wrong discount id surfaces as a
+   refused checkout, not a wrong price, which is the less dangerous half.
 
 3. **Student verification has never been run end to end.** The code is there
    and unit-tested — `src/lib/student.ts`, `src/server/student.ts`,
@@ -408,6 +426,13 @@ pre-commit scan before anything was pushed.
 - **Nothing in the UI links to `/auth/signout`.** The route exists, is POST
   only, and has no button anywhere — the browser spec posts to it directly.
   Signing out is currently not something a founder can do from the product.
+
+- **`loadEnv` cannot be overridden with an empty value.** `scripts/env.mjs`
+  writes a key only `if (!process.env[key])`, and `""` is falsy — so
+  `FOO= node scripts/x.mjs` is silently replaced by whatever `.env.local`
+  says. Testing a blank-variable code path means running from a directory
+  with its own `.env.local`, not a shell prefix. This cost a mutation check
+  that appeared to pass.
 
 - **The Supabase client is untyped.** There is no generated `Database` type,
   so new tables need no type regeneration — but also get no compile-time
