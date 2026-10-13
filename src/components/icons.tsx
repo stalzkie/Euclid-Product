@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { SVGProps } from "react";
 
 /**
@@ -177,27 +178,26 @@ export function SuccessBadge({ size = 16 }: { size?: number }) {
   );
 }
 
-/** The mark: ink square, white circle and triangle, one pink vertex. */
-export function Logo({ size = 28 }: { size?: number }) {
-  const stroke = size <= 22 ? 1.8 : 1.6;
+/**
+ * The mark. Two files, because the glyph's counter is knocked out rather than
+ * painted: on a dark surface the blue "e" needs the white variant or the
+ * counter disappears into the background.
+ */
+export function Logo({
+  size = 28,
+  variant = "light",
+}: {
+  size?: number;
+  /** The surface the mark sits on, not the colour of the mark itself. */
+  variant?: "light" | "dark";
+}) {
   return (
-    <svg
+    <Image
+      src={variant === "dark" ? "/logos/logo-dark.png" : "/logos/logo.png"}
+      alt="Euclid"
       width={size}
       height={size}
-      viewBox="0 0 28 28"
-      role="img"
-      aria-label="Euclid"
-    >
-      <rect width="28" height="28" rx="7" fill="#17171A" />
-      <circle cx="14" cy="14" r="8.2" fill="none" stroke="#FFFFFF" strokeWidth={stroke} />
-      <path
-        d="M14 5.8 21.1 18.1H6.9Z"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth={stroke}
-        strokeLinejoin="round"
-      />
-      <circle cx="14" cy="5.8" r={size <= 22 ? 1.9 : 1.7} fill="#EC4899" />
-    </svg>
+      className="shrink-0"
+    />
   );
 }

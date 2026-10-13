@@ -212,7 +212,7 @@ export function PublicPostView({
             className="inline-flex items-center gap-2 text-[12px] no-underline"
             style={{ color: t.sub }}
           >
-            <Logo size={16} />
+            <Logo size={16} variant={design.theme === "Dark" ? "dark" : "light"} />
             Powered by Euclid
           </Link>
         </footer>

@@ -308,7 +308,7 @@ export function PublicBoardView({
             )}
             style={{ color: t.sub }}
           >
-            <Logo size={16} />
+            <Logo size={16} variant={design.theme === "Dark" ? "dark" : "light"} />
             Powered by Euclid
           </Link>
         </footer>
