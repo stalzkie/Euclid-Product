@@ -9,6 +9,7 @@ import { billingEnabled } from "@/lib/polar";
 import { requestStudentVerification } from "@/server/student";
 import { appOrigin } from "@/lib/origin";
 import { drainAfterResponse } from "@/server/dispatch";
+import { referralLink } from "@/lib/referrals";
 import type { PlanTier } from "@/lib/types";
 
 /**
@@ -135,4 +136,72 @@ export async function verifyStudentEmail(email: string) {
 
   revalidatePath("/billing");
   return { ok: true as const, kind: result.kind };
+}
+
+/* --------------------------------------------------------------------------
+ * Referrals
+ * ------------------------------------------------------------------------ */
+
+export interface ReferralState {
+  code: string;
+  link: string;
+  /** Workspaces that signed up through the code. */
+  signups: number;
+  /** Build Prompts earned, net of anything a refund took back. */
+  earned: number;
+}
+
+/**
+ * The workspace's referral code, minting one on first use.
+ *
+ * A separate action rather than part of the page load, because minting writes
+ * and a page render should not: a founder who never opens the referral
+ * section never gets a row, and the table stays a list of people who actually
+ * asked.
+ */
+export async function referralState(): Promise<
+  { ok: true; state: ReferralState } | { ok: false; error: string }
+> {
+  const ctx = await requireFounder();
+  const db = await supabaseServer();
+
+  const { data: code, error } = await db.rpc("ensure_referral_code", {
+    p_workspace: ctx.workspace.id,
+    // The slug is already lower-case, unique-ish and recognisably theirs,
+    // which is a better starting point than a random string somebody has to
+    // read out loud.
+    p_base: ctx.workspace.slug,
+  });
+
+  if (error || typeof code !== "string") {
+    return { ok: false as const, error: error?.message ?? "Could not create a code." };
+  }
+
+  const [{ count: signups }, { data: rows }] = await Promise.all([
+    db
+      .from("workspaces")
+      .select("id", { count: "exact", head: true })
+      .eq("referred_by", code),
+    db
+      .from("referral_commissions")
+      .select("quantity,reversed_at")
+      .eq("referrer_id", ctx.workspace.id),
+  ]);
+
+  // Reversed rows are kept in the ledger and excluded from the total, so the
+  // number shown is what the founder actually has rather than what they were
+  // once promised.
+  const earned = (rows ?? [])
+    .filter((row) => !row.reversed_at)
+    .reduce((sum, row) => sum + (row.quantity as number), 0);
+
+  return {
+    ok: true as const,
+    state: {
+      code,
+      link: referralLink(await appOrigin(), code),
+      signups: signups ?? 0,
+      earned,
+    },
+  };
 }

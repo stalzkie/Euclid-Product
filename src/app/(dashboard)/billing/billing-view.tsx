@@ -14,8 +14,10 @@ import {
   changePlan,
   deleteEndUser,
   exportEndUser,
+  referralState,
   renameWorkspace,
   verifyStudentEmail,
+  type ReferralState,
 } from "./actions";
 
 /** 14 · Plan and credits. */
@@ -88,6 +90,11 @@ export function BillingView({
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  // Loaded on demand, because asking for it mints a code. A founder who never
+  // opens this section never gets a row.
+  const [referral, setReferral] = useState<ReferralState | null>(null);
+  const [referralPending, startReferral] = useTransition();
 
   const current = PLANS[plan];
   const yearly = period === "yearly";
@@ -519,6 +526,86 @@ export function BillingView({
               Payments are handled by Polar. Upgrading opens a checkout; your plan changes
               once the payment clears.
             </Banner>
+          )}
+        </section>
+
+        {/* Referrals */}
+        <section
+          id="referrals"
+          aria-labelledby="referrals-title"
+          className="flex flex-col gap-4 rounded-card border border-line p-[18px]"
+        >
+          <SectionTitle id="referrals-title">Refer another founder</SectionTitle>
+
+          {referral ? (
+            <>
+              <p className="text-[13.5px] text-ink-body">
+                Anyone who signs up through your link and pays earns you{" "}
+                <strong className="font-semibold">4 Build Prompts per dollar</strong> they
+                spend — every month they stay, not just the first.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="flex-1 min-w-[240px] truncate rounded-control border border-line bg-subtle px-3 py-2 text-[12.5px]">
+                  {referral.link}
+                </code>
+                <Button
+                  icon="copy"
+                  onClick={() => {
+                    navigator.clipboard
+                      .writeText(referral.link)
+                      .then(() => flash("Link copied."))
+                      .catch(() => setError("Could not copy the link."));
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-6 text-[13px]">
+                <span className="flex flex-col">
+                  <strong className="text-[18px] font-semibold tnum">
+                    {referral.signups}
+                  </strong>
+                  <span className="text-ink-3">
+                    {referral.signups === 1 ? "signup" : "signups"}
+                  </span>
+                </span>
+                <span className="flex flex-col">
+                  <strong className="text-[18px] font-semibold tnum">
+                    {referral.earned}
+                  </strong>
+                  <span className="text-ink-3">Build Prompts earned</span>
+                </span>
+              </div>
+
+              <p className="text-[12px] text-ink-3">
+                Earned prompts land in your balance and never expire. A refunded order
+                takes its prompts back, floored at zero.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13.5px] text-ink-body">
+                Know someone building something? Get a link, and earn Build Prompts when
+                they pay.
+              </p>
+              <span>
+                <Button
+                  disabled={referralPending}
+                  onClick={() =>
+                    startReferral(async () => {
+                      const res = await referralState();
+                      if (res.ok) setReferral(res.state);
+                      else setError(res.error);
+                    })
+                  }
+                >
+                  {referralPending ? <Spinner /> : null}
+                  Get my link
+                </Button>
+              </span>
+            </>
           )}
         </section>
 

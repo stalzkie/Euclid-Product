@@ -1,10 +1,12 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { slugify } from "@/lib/format";
 import type { StackItem } from "@/lib/types";
+import { REFERRAL_COOKIE, normaliseCode } from "@/lib/referrals";
 
 /**
  * Founder setup, the three steps between signing up and a live board.
@@ -94,6 +96,17 @@ export async function saveAppStep(input: z.infer<typeof AppStep>) {
       auth.user.email?.split("@")[0] ??
       null,
     p_board_heading: `What should we build next in ${parsed.data.appName}?`,
+    /*
+      The referral, if one has been following this browser since before the
+      founder signed up. Read here rather than earlier because this is the
+      moment the workspace exists to attach it to, and passed into the same
+      call that creates it so a workspace is never briefly unattributed.
+
+      An unknown code is ignored inside `create_workspace` rather than
+      refused: somebody mistyping a friend's code should still get a
+      workspace.
+    */
+    p_referred_by: normaliseCode((await cookies()).get(REFERRAL_COOKIE)?.value),
   });
 
   if (createError || !workspaceId) {

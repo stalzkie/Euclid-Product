@@ -7,6 +7,7 @@ import {
   topupForProduct,
   type TopupKind,
 } from "@/lib/polar";
+import { commissionFor } from "@/lib/referrals";
 import type { PlanTier } from "@/lib/types";
 
 /**
@@ -256,4 +257,87 @@ export async function applySubscription(
   });
 
   return error ? { ok: false, error: error.message } : { ok: true, workspace, plan };
+}
+
+/* --------------------------------------------------------------------------
+ * Referral commissions
+ *
+ * Paid in Build Prompts rather than money, because Polar is the merchant of
+ * record: payments land in Euclid's balance and Polar pays out to Euclid
+ * alone. See `supabase/migrations/0020_referrals.sql` for the whole argument.
+ *
+ * Shaped exactly like the top-up pair above, including the "granted or
+ * recognised a replay" return, because they face the same problem: Polar
+ * retries until it gets a 2xx and sent three events for one state change
+ * during testing, so the same order arriving twice is expected.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Credit the referrer of this workspace for one paid order.
+ *
+ * Runs for every paid order, not only top-ups: a subscription renewal is the
+ * case that matters most, since it is the one that recurs. An order from a
+ * workspace nobody referred is the common case and is not an error.
+ */
+export async function applyReferralCommission(args: {
+  orderId: string;
+  customerId: string;
+  workspaceId: string | null;
+  netCents: number;
+}): Promise<{ ok: true; granted: boolean; quantity: number } | { ok: false; error: string }> {
+  const quantity = commissionFor(args.netCents);
+
+  // A $0 trial invoice earns nothing, and finding out costs a round trip.
+  if (quantity <= 0) return { ok: true, granted: false, quantity: 0 };
+
+  /*
+    Resolve the buyer the same way a top-up does, rather than trusting the
+    order's metadata alone.
+
+    A checkout sets `workspace_id` and it reaches the first order. Whether a
+    *renewal* order carries it forward is Polar's business and not something
+    this depends on — and renewals are exactly the orders that recur, so a
+    commission that only ever fired on the first invoice would look like it
+    worked and quietly be worth a twelfth of what it should be. The customer
+    id is already stored on the workspace and is the durable link.
+  */
+  const workspace = await workspaceForSubscription({
+    subscriptionId: "",
+    customerId: args.customerId,
+    productId: "",
+    status: "",
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    workspaceId: args.workspaceId,
+  });
+
+  if (!workspace) return { ok: true, granted: false, quantity: 0 };
+
+  const { data, error } = await supabaseAdmin().rpc("grant_referral_commission", {
+    p_referred: workspace,
+    p_order_id: args.orderId,
+    p_quantity: quantity,
+    p_order_cents: args.netCents,
+  });
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, granted: data === true, quantity };
+}
+
+/**
+ * Take a commission back because the order behind it was refunded.
+ *
+ * An order that never earned one is not an error — most orders have no
+ * referrer — so this reports "nothing to reverse" the way `reverseTopup`
+ * does rather than failing a webhook Polar would then retry.
+ */
+export async function reverseReferralCommission(
+  orderId: string,
+): Promise<{ ok: true; reversed: boolean } | { ok: false; error: string }> {
+  const { data, error } = await supabaseAdmin().rpc("reverse_referral_commission", {
+    p_order_id: orderId,
+  });
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, reversed: data === true };
 }

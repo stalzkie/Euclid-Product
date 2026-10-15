@@ -2,11 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { webhooks } from "@polar-sh/sdk/2027-01";
 import { hasServiceRole } from "@/lib/supabase/server";
 import {
+  applyReferralCommission,
   applySubscription,
   applyTopup,
+  reverseReferralCommission,
   reverseTopup,
   subscriptionStateFrom,
 } from "@/server/billing";
+import { orderAmountCents } from "@/lib/referrals";
 
 /**
  * Polar's webhook. The only thing in the system allowed to move a workspace
@@ -72,11 +75,33 @@ async function handleRefund(event: { type: string; data: unknown }) {
     return NextResponse.json({ error: result.error }, { status: 422 });
   }
 
+  /*
+    A refund also takes back whatever the referrer earned for the order.
+
+    This is the case the whole ledger exists for. A commission is granted the
+    moment an order is paid, and an order can be refunded minutes later — one
+    was, on 2026-10-15, five minutes after payment. Without this the referrer
+    keeps credit for a sale that no longer exists.
+
+    Reversed after the top-up and reported separately: the two are independent
+    ledgers, and a failure in one must not hide a success in the other.
+  */
+  const commission = await reverseReferralCommission(order.id);
+  if (!commission.ok) {
+    console.error(`[billing] ${event.type}: commission: ${commission.error}`);
+    return NextResponse.json({ error: commission.error }, { status: 422 });
+  }
+
   console.info(
     `[billing] ${event.type}: ${result.reversed ? "reversed" : "nothing to reverse"} ` +
-      `for order ${order.id}`,
+      `for order ${order.id}` +
+      (commission.reversed ? " · commission reversed" : ""),
   );
-  return NextResponse.json({ ok: true, reversed: result.reversed });
+  return NextResponse.json({
+    ok: true,
+    reversed: result.reversed,
+    commissionReversed: commission.reversed,
+  });
 }
 
 async function handleOrder(event: { type: string; data: unknown }) {
@@ -88,22 +113,58 @@ async function handleOrder(event: { type: string; data: unknown }) {
     id: string;
     customer_id: string;
     product_id: string | null;
+    net_amount?: unknown;
+    subtotal_amount?: unknown;
+    discount_amount?: unknown;
+    total_amount?: unknown;
     metadata?: Record<string, unknown> | null;
   };
 
   const workspaceId = order.metadata?.workspace_id;
+  const buyer = typeof workspaceId === "string" ? workspaceId : null;
+
+  /*
+    The referrer's cut, before anything below can return early.
+
+    A subscription renewal is not a top-up, so it falls through to the
+    unknown-product branch and is acknowledged — which is correct for
+    top-ups and would silently skip every recurring commission if this
+    ran afterwards. Renewals are the ones that recur, so they are the ones
+    worth getting right.
+  */
+  const commission = await applyReferralCommission({
+    orderId: order.id,
+    customerId: order.customer_id,
+    workspaceId: buyer,
+    netCents: orderAmountCents(order),
+  });
+
+  if (!commission.ok) {
+    console.error(`[billing] ${event.type}: commission: ${commission.error}`);
+    return NextResponse.json({ error: commission.error }, { status: 422 });
+  }
+  if (commission.granted) {
+    console.info(
+      `[billing] ${event.type}: ${commission.quantity} prompts to the referrer of ${buyer}`,
+    );
+  }
+
   const result = await applyTopup({
     orderId: order.id,
     customerId: order.customer_id,
     productId: order.product_id ?? "",
-    workspaceId: typeof workspaceId === "string" ? workspaceId : null,
+    workspaceId: buyer,
   });
 
   if (!result.ok) {
     // An order for a product that is not a top-up pack is the normal case for
     // a subscription renewal, and must not be retried forever.
     if (result.error.startsWith("Unknown Polar product")) {
-      return NextResponse.json({ ok: true, ignored: event.type });
+      return NextResponse.json({
+        ok: true,
+        ignored: event.type,
+        commission: commission.granted,
+      });
     }
     console.error(`[billing] ${event.type}: ${result.error}`);
     return NextResponse.json({ error: result.error }, { status: 422 });
@@ -115,7 +176,11 @@ async function handleOrder(event: { type: string; data: unknown }) {
     `[billing] ${event.type}: ${result.granted ? "granted" : "already applied"} ` +
       `${result.quantity} ${result.kind} to ${result.workspace}`,
   );
-  return NextResponse.json({ ok: true, granted: result.granted });
+  return NextResponse.json({
+    ok: true,
+    granted: result.granted,
+    commission: commission.granted,
+  });
 }
 
 export async function POST(request: NextRequest) {

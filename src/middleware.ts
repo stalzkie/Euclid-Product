@@ -2,6 +2,11 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isOwnHost } from "@/lib/domains";
 import { getJwks } from "@/lib/supabase/jwks";
+import {
+  REFERRAL_COOKIE,
+  REFERRAL_COOKIE_DAYS,
+  normaliseCode,
+} from "@/lib/referrals";
 
 /**
  * Refreshes the Supabase session cookie on navigation and keeps signed-out
@@ -46,9 +51,37 @@ export async function middleware(request: NextRequest) {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let response = NextResponse.next({ request });
 
+  /*
+    A referral code, if one came in on the URL.
+
+    Captured here because middleware is the only place that sees the request
+    before anything renders and can still set a cookie — a server component
+    cannot. It is written on every matched route rather than only on /signup,
+    since a shared link may point at any page and the sign-up redirect below
+    would otherwise drop the code on the way.
+
+    First write wins: someone who arrives through one person's link and later
+    clicks another's stays with the first. The alternative rewards whoever
+    sends the most recent link rather than whoever actually did the
+    convincing, and it lets a referrer overwrite a colleague's attribution by
+    sending a link at the right moment.
+  */
+  const incoming = normaliseCode(request.nextUrl.searchParams.get("ref"));
+  const attribute = (res: NextResponse) => {
+    if (!incoming || request.cookies.get(REFERRAL_COOKIE)) return res;
+    res.cookies.set(REFERRAL_COOKIE, incoming, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: request.nextUrl.protocol === "https:",
+      path: "/",
+      maxAge: REFERRAL_COOKIE_DAYS * 24 * 60 * 60,
+    });
+    return res;
+  };
+
   // Before the envs are wired up, let everything through so the app can
   // render its own setup notice.
-  if (!url || !anon) return response;
+  if (!url || !anon) return attribute(response);
 
   const supabase = createServerClient(url, anon, {
     cookies: {
@@ -82,10 +115,10 @@ export async function middleware(request: NextRequest) {
     const to = request.nextUrl.clone();
     to.pathname = "/signup";
     to.searchParams.set("next", path);
-    return NextResponse.redirect(to);
+    return attribute(NextResponse.redirect(to));
   }
 
-  return response;
+  return attribute(response);
 }
 
 export const config = {
@@ -105,5 +138,11 @@ export const config = {
     "/billing/:path*",
     "/ask/:path*",
     "/onboarding/:path*",
+    // Added for referrals: a shared link points at /signup, which was not
+    // matched before, so nothing ran there to capture the code. The auth
+    // redirect above already excludes both paths, so matching them changes
+    // nothing else.
+    "/signup",
+    "/login",
   ],
 };
