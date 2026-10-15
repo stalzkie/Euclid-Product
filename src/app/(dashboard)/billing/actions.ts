@@ -8,6 +8,7 @@ import { PLANS } from "@/lib/plans";
 import { billingEnabled } from "@/lib/polar";
 import { requestStudentVerification } from "@/server/student";
 import { appOrigin } from "@/lib/origin";
+import { drainAfterResponse } from "@/server/dispatch";
 import type { PlanTier } from "@/lib/types";
 
 /**
@@ -123,6 +124,15 @@ export async function verifyStudentEmail(email: string) {
   const origin = await appOrigin();
   const result = await requestStudentVerification(ctx.workspace.id, email, origin);
   if (!result.ok) return { ok: false as const, error: result.error };
+
+  // The link is in the outbox; send it as soon as this response is out.
+  // Without this the row waits for the daily cron while the link it carries
+  // expires in 24 hours, so a verification sent in the afternoon could arrive
+  // already dead — or, for the review variant, land after the student has
+  // given up. Same reasoning as the magic-link route, which has always done
+  // this; this path was simply missed.
+  drainAfterResponse({ deliveries: false });
+
   revalidatePath("/billing");
   return { ok: true as const, kind: result.kind };
 }
