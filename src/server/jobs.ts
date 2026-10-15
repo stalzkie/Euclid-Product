@@ -257,3 +257,146 @@ export async function buildWeeklyDigest(boardId: string): Promise<boolean> {
     return false;
   }
 }
+
+/* --------------------------------------------------------------------------
+ * Trials ending
+ *
+ * Polar's trial checkout collects no card — verified on production, where
+ * starting a real trial asked only for an email and a country while the $5
+ * top-up checkout a minute later asked for a card. There is no "require
+ * payment method" setting on the product to change that.
+ *
+ * So every trial arrives at day 7 with nothing to charge. Polar fails the
+ * payment, moves the subscription to `past_due`, retries for a few days and
+ * then revokes it. `ENTITLED` deliberately keeps the founder's features on
+ * through `past_due`, which is right for an expiring card and wrong here: it
+ * means the whole thing happens silently and the workspace is simply on free
+ * one morning.
+ *
+ * This is the one message that interrupts that. It is not marketing — it is
+ * the only notice a founder gets that the thing they are using is about to
+ * stop.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * How long before the end of a trial to send the reminder.
+ *
+ * Two days on a seven-day trial: long enough to act on a weekday, late enough
+ * that the trial has been used rather than arriving before the founder has
+ * seen the product. A longer window on a trial this short would land while
+ * they are still setting up, which reads as a sales email rather than a
+ * warning.
+ */
+const TRIAL_REMINDER_HOURS = 48;
+
+export interface TrialReminderResult {
+  queued: number;
+  skipped: number;
+}
+
+/**
+ * Queue "your trial is ending" for every trial inside the window.
+ *
+ * Deliberately does not send: the row goes in `email_outbox` like every other
+ * message and the existing drain delivers it, so retries, backoff and the
+ * abandon-after-five-attempts rule are inherited rather than reimplemented.
+ *
+ * Nothing here reads a founder's email from a table, because no table has it
+ * — the session is the only place it normally appears. The admin API is the
+ * supported way to ask, and it is asked once per workspace, only for
+ * workspaces already inside the window.
+ */
+export async function remindExpiringTrials(origin: string): Promise<TrialReminderResult> {
+  const db = supabaseAdmin();
+  const now = Date.now();
+  const cutoff = new Date(now + TRIAL_REMINDER_HOURS * 60 * 60 * 1000).toISOString();
+
+  const { data: due } = await db
+    .from("workspaces")
+    .select("id,name,plan,current_period_end")
+    .eq("subscription_status", "trialing")
+    // Someone who has already cancelled knows the plan is ending; telling them
+    // to add a card to keep it would be arguing with a decision they made.
+    .eq("cancel_at_period_end", false)
+    .is("trial_reminder_sent_at", null)
+    .gt("current_period_end", new Date(now).toISOString())
+    .lte("current_period_end", cutoff);
+
+  let queued = 0;
+  let skipped = 0;
+
+  for (const workspace of due ?? []) {
+    const email = await founderEmail(workspace.id);
+    if (!email) {
+      // No reachable owner. Left unmarked on purpose: if the membership is
+      // repaired tomorrow the reminder can still go out, and a trial with
+      // nobody to tell is worth noticing rather than silently skipping.
+      console.warn(`[euclid] trial ending for ${workspace.id} but no founder email found`);
+      skipped += 1;
+      continue;
+    }
+
+    const ends = workspace.current_period_end
+      ? new Date(workspace.current_period_end).toUTCString()
+      : "in the next couple of days";
+
+    await db.from("email_outbox").insert({
+      to_email: email,
+      subject: `Your Euclid trial ends ${workspace.current_period_end ? "soon" : "shortly"}`,
+      body: [
+        `Your ${workspace.name} trial ends ${ends}.`,
+        "",
+        "Euclid does not have a card for you yet — the trial did not ask for",
+        "one — so nothing will be charged, and the workspace will drop to the",
+        "free plan when the trial runs out. Boards stay up on free; the",
+        "allowances get smaller.",
+        "",
+        "To stay on your current plan, add a card here:",
+        `${origin}/billing`,
+        "",
+        "If you would rather not continue, you do not need to do anything.",
+      ].join("\n"),
+      kind: "trial_ending",
+    });
+
+    await db
+      .from("workspaces")
+      .update({ trial_reminder_sent_at: new Date().toISOString() })
+      .eq("id", workspace.id);
+
+    queued += 1;
+  }
+
+  return { queued, skipped };
+}
+
+/**
+ * The owner's email address, from Supabase auth.
+ *
+ * `workspace_members` carries a user id and a display name but no address, and
+ * `context.ts` reads the email off the session — which a scheduled job does
+ * not have. Falls back to any member when there is no owner, because a
+ * workspace with one non-owner member is still somebody's trial.
+ */
+async function founderEmail(workspaceId: string): Promise<string | null> {
+  const db = supabaseAdmin();
+
+  const { data: members } = await db
+    .from("workspace_members")
+    .select("user_id,role")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: true });
+
+  const ordered = [...(members ?? [])].sort((a, b) =>
+    a.role === "owner" ? -1 : b.role === "owner" ? 1 : 0,
+  );
+
+  for (const member of ordered) {
+    const { data, error } = await db.auth.admin.getUserById(member.user_id);
+    if (error) continue;
+    const email = data.user?.email;
+    if (email) return email;
+  }
+
+  return null;
+}

@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { hasServiceRole, supabaseAdmin } from "@/lib/supabase/server";
-import { sendQueuedEmails } from "@/server/jobs";
+import { remindExpiringTrials, sendQueuedEmails } from "@/server/jobs";
 import { deliverIntegrationEvents } from "@/server/integrations";
 import { authorizeCron } from "@/server/cron";
+import { appOrigin } from "@/lib/origin";
 
 /**
  * The queue drain. Anything slow or expensive — emails, embeddings backfill,
@@ -22,6 +23,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No service role configured" }, { status: 503 });
   }
 
+  // Queue before draining, so a reminder that becomes due on this pass goes
+  // out on this pass rather than waiting a day for the next one. A trial has
+  // seven of them; losing one to ordering would be a quarter of the warning.
+  const trials = await remindExpiringTrials(await appOrigin());
+
   const emails = await sendQueuedEmails(50);
   const integrations = await deliverIntegrationEvents(20);
 
@@ -29,7 +35,7 @@ export async function POST(request: NextRequest) {
   const db = supabaseAdmin();
   await db.from("magic_links").delete().lt("expires_at", new Date().toISOString());
 
-  return NextResponse.json({ ok: true, emails, integrations });
+  return NextResponse.json({ ok: true, emails, integrations, trials });
 }
 
 export async function GET(request: NextRequest) {

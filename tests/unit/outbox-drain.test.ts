@@ -30,6 +30,10 @@ const SRC = join(process.cwd(), "src");
  */
 const DRAINED_BY_CALLER: Record<string, string> = {
   "server/student.ts": "app/(dashboard)/billing/actions.ts",
+  // The trial reminder is queued by a job and drained by the same cron
+  // request a few lines later, which is stricter than after-response work
+  // rather than weaker: the row is sent before the response is written.
+  "server/jobs.ts": "app/api/jobs/run/route.ts",
 };
 
 function sourceFiles(dir: string): string[] {
@@ -54,7 +58,15 @@ const files = sourceFiles(SRC).map((full) => ({
 const QUEUES_EMAIL = /from\(\s*["']email_outbox["']\s*\)\s*\.insert\(/;
 
 const queues = files.filter((f) => QUEUES_EMAIL.test(f.text));
-const drains = new Set(files.filter((f) => f.text.includes("drainAfterResponse(")).map((f) => f.path));
+/**
+ * Two ways to discharge the obligation. `drainAfterResponse` schedules the
+ * send once the current response is out; calling `sendQueuedEmails` directly
+ * does it inline, which is what the cron route does. Either means the row is
+ * not left for tomorrow, which is the only thing this test is about.
+ */
+const DRAINS = /drainAfterResponse\(|sendQueuedEmails\(/;
+
+const drains = new Set(files.filter((f) => DRAINS.test(f.text)).map((f) => f.path));
 
 describe("email outbox", () => {
   // If this ever finds nothing, the detection has rotted rather than the
@@ -74,9 +86,9 @@ describe("email outbox", () => {
     }
     expect(
       drains.has(path),
-      `${path} inserts into email_outbox but never calls drainAfterResponse, so the ` +
-        "row waits for the daily cron. Either drain it, or add an entry to " +
-        "DRAINED_BY_CALLER naming the caller that does.",
+      `${path} inserts into email_outbox but never drains it, so the row waits ` +
+        "for the daily cron. Either call drainAfterResponse (or sendQueuedEmails) " +
+        "here, or add an entry to DRAINED_BY_CALLER naming the caller that does.",
     ).toBe(true);
   });
 

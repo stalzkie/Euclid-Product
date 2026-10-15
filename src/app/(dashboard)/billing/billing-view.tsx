@@ -117,6 +117,12 @@ export function BillingView({
   // A cancelled plan keeps its tier to the end of the period and then drops.
   const cancelled = billing.cancelAtPeriodEnd;
 
+  // A trial does not renew, it converts — and Polar's trial checkout takes no
+  // card, so the first charge is also the first time one is asked for. Saying
+  // "renews" here was the same mistake in a smaller way: it describes a
+  // payment continuing when none has ever been taken.
+  const trialing = billing.status === "trialing";
+
   /*
     Steps per chat question, for turning a credit balance into the number a
     founder actually cares about.
@@ -257,6 +263,10 @@ export function BillingView({
                   <span className="rounded-full bg-muted px-[9px] py-[3px] text-[11.5px] font-medium text-ink-2">
                     Cancelled
                   </span>
+                ) : trialing ? (
+                  <span className="rounded-full bg-state-wash px-[9px] py-[3px] text-[11.5px] font-medium text-state">
+                    Trial
+                  </span>
                 ) : (
                   <span className="rounded-full bg-ok-wash px-[9px] py-[3px] text-[11.5px] font-medium text-ok">
                     Active
@@ -270,9 +280,13 @@ export function BillingView({
                     ? `Ends ${longDate(billingDate.toISOString())} · you keep ${
                         current.name
                       } until then`
-                    : `$${
-                        billingPeriod === "yearly" ? current.yearly : current.monthly
-                      } a month · renews ${longDate(billingDate.toISOString())}`}
+                    : trialing
+                      ? `Trial ends ${longDate(billingDate.toISOString())} · $${
+                          billingPeriod === "yearly" ? current.yearly : current.monthly
+                        } a month after that`
+                      : `$${
+                          billingPeriod === "yearly" ? current.yearly : current.monthly
+                        } a month · renews ${longDate(billingDate.toISOString())}`}
               </span>
             </div>
             {/*
