@@ -118,13 +118,23 @@ export const db = {
   async remove(path: string): Promise<void> {
     await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { method: "DELETE", headers: dbHeaders });
   },
+  /**
+   * Calls a Postgres function.
+   *
+   * A `returns void` function answers 204 with no body at all, so parsing the
+   * response unconditionally throws "Unexpected end of JSON input" on a call
+   * that in fact succeeded — which reads as a broken function rather than a
+   * broken helper. `apply_subscription` is the one that found this.
+   */
   async rpc<T = unknown>(name: string, args: Record<string, unknown>): Promise<T | null> {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
       method: "POST",
       headers: dbHeaders,
       body: JSON.stringify(args),
     });
-    return res.ok ? ((await res.json()) as T) : null;
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text ? ((JSON.parse(text) as T) ?? null) : null;
   },
 };
 
