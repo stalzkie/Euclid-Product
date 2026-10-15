@@ -58,6 +58,8 @@ export function BillingView({
     hasCustomer: boolean;
     status: string | null;
     periodEnd: string | null;
+    /** Set when the plan will not renew. Polar leaves `status` alone. */
+    cancelAtPeriodEnd: boolean;
     /** Length of the Polar trial, or null when no trial is configured. */
     trialDays: number | null;
     /** Whether a student discount is configured on this deployment. */
@@ -94,8 +96,26 @@ export function BillingView({
     toast(message);
   };
 
-  const renewal = new Date(periodStart);
-  renewal.setMonth(renewal.getMonth() + 1);
+  /*
+    Two different dates used to be one.
+
+    `periodStart + 1 month` is when the *allowance* resets, which is what the
+    usage meters below are counting towards. It is not when money moves, and
+    labelling it "renews" said so: on a trial started on the 15th the header
+    read "renews November 1" while the banner under it correctly said the
+    period ran to October 22.
+
+    `billing.periodEnd` is Polar's `current_period_end` — the date a charge
+    actually falls, or a cancelled plan actually ends. Use it whenever there is
+    a subscription; fall back to the allowance reset only when there is none,
+    where it is the only date there is.
+  */
+  const allowanceReset = new Date(periodStart);
+  allowanceReset.setMonth(allowanceReset.getMonth() + 1);
+  const billingDate = billing.periodEnd ? new Date(billing.periodEnd) : allowanceReset;
+
+  // A cancelled plan keeps its tier to the end of the period and then drops.
+  const cancelled = billing.cancelAtPeriodEnd;
 
   /*
     Steps per chat question, for turning a credit balance into the number a
@@ -119,7 +139,7 @@ export function BillingView({
       limit: current.buildPrompts,
       extra: extraPrompts,
       color: promptsUsed >= current.buildPrompts ? "#F59E0B" : "#1A8CFF",
-      note: `Resets ${longDate(renewal.toISOString())}`,
+      note: `Resets ${longDate(allowanceReset.toISOString())}`,
     },
     {
       label: "AI chat credits",
@@ -233,16 +253,26 @@ export function BillingView({
                 className="flex items-center gap-2 text-[17px] font-semibold"
               >
                 {current.name} plan
-                <span className="rounded-full bg-ok-wash px-[9px] py-[3px] text-[11.5px] font-medium text-ok">
-                  Active
-                </span>
+                {cancelled ? (
+                  <span className="rounded-full bg-muted px-[9px] py-[3px] text-[11.5px] font-medium text-ink-2">
+                    Cancelled
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-ok-wash px-[9px] py-[3px] text-[11.5px] font-medium text-ok">
+                    Active
+                  </span>
+                )}
               </h2>
               <span className="text-[13px] text-ink-2">
                 {current.monthly === 0
                   ? "Free forever"
-                  : `$${
-                      billingPeriod === "yearly" ? current.yearly : current.monthly
-                    } a month · renews ${longDate(renewal.toISOString())}`}
+                  : cancelled
+                    ? `Ends ${longDate(billingDate.toISOString())} · you keep ${
+                        current.name
+                      } until then`
+                    : `$${
+                        billingPeriod === "yearly" ? current.yearly : current.monthly
+                      } a month · renews ${longDate(billingDate.toISOString())}`}
               </span>
             </div>
             {/*
@@ -433,7 +463,13 @@ export function BillingView({
                           ? `Start ${billing.trialDays}-day free trial`
                           : `Upgrade to ${spec.name}`
                         : billing.enabled && tier === "free"
-                          ? "Cancel subscription"
+                          ? // Already cancelled: the same portal has an
+                            // Uncancel button, so offering "Cancel" again is
+                            // both wrong and the thing that made a cancelled
+                            // plan look untouched.
+                            cancelled
+                            ? "Resume subscription"
+                            : "Cancel subscription"
                           : `Downgrade to ${spec.name}`}
                   </Button>
                 </article>

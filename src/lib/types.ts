@@ -97,6 +97,12 @@ export interface Workspace {
   subscription_status: string | null;
   /** End of the paid period. A cancelled plan keeps its tier until this. */
   current_period_end: string | null;
+  /**
+   * Set when the subscription will not renew. Polar leaves `status` as
+   * `active` or `trialing` while a cancelled plan runs out, so this is the
+   * only way to tell the difference.
+   */
+  cancel_at_period_end: boolean;
   /** The address the student discount was granted against, if any. */
   student_email: string | null;
   /** When it was granted. Expiry is computed from this, not stored. */

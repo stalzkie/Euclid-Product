@@ -18,7 +18,23 @@ import { expect, test } from "./fixture";
  */
 
 const HOST = "/demo/host.html";
-const SECRET = "e2e-jwt-secret-not-used-anywhere-else";
+
+/**
+ * The server verifies against one deployment-wide `EUCLID_SECRET`, not a
+ * per-board secret — `boards.jwt_secret` exists in the schema and is read by
+ * nothing. Signing with anything else produces a token the app correctly
+ * rejects, and a spec that proves only that rejection works.
+ *
+ * CI sets this at job level precisely so the app and the tests cannot
+ * disagree about it. Failing loudly beats signing with "undefined".
+ */
+const SECRET: string = process.env.EUCLID_SECRET ?? "";
+if (!SECRET) {
+  throw new Error(
+    "EUCLID_SECRET is not set, so these specs cannot sign a token the app " +
+      "will accept. It is in .env.local for local runs and job-level in CI.",
+  );
+}
 
 const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
@@ -35,19 +51,16 @@ function sign(claims: Record<string, unknown>, secret = SECRET): string {
  * The fixture board is anonymous, because most specs want a visitor who can
  * post without a mailbox. These specs need it in JWT mode, and must hand it
  * back: the suite runs serially against one board.
+ *
+ * Only `identity_mode` moves. The board's `jwt_secret` column is deliberately
+ * left alone — writing it would suggest it does something.
  */
 async function withJwtMode(boardId: string, run: () => Promise<void>): Promise<void> {
-  await db.patch(`boards?id=eq.${boardId}`, {
-    identity_mode: "jwt",
-    jwt_secret: SECRET,
-  });
+  await db.patch(`boards?id=eq.${boardId}`, { identity_mode: "jwt" });
   try {
     await run();
   } finally {
-    await db.patch(`boards?id=eq.${boardId}`, {
-      identity_mode: "anonymous",
-      jwt_secret: null,
-    });
+    await db.patch(`boards?id=eq.${boardId}`, { identity_mode: "anonymous" });
   }
 }
 

@@ -56,7 +56,11 @@ test("a held post is invisible publicly, and the founder can approve it onto the
 
   // Invisible to the public first, because that is the promise being kept
   // while it waits — and the state the old code never came back from.
-  await page.goto(`/b/${board.publicId}`);
+  //
+  // `?tab=ideas` matters: the board opens on the roadmap, which lists nothing
+  // under review. Without it this would pass on a board that had published
+  // the post immediately, which is the opposite of what is being checked.
+  await page.goto(`/b/${board.publicId}?tab=ideas`);
   await expect(page.getByText(title, { exact: true })).toHaveCount(0);
 
   await founder.signIn(page, "/feedback");
@@ -78,7 +82,7 @@ test("a held post is invisible publicly, and the founder can approve it onto the
   await page.getByRole("button", { name: "Approve" }).first().click();
   await expect(page.getByText("Approved", { exact: true })).toBeVisible();
 
-  await page.goto(`/b/${board.publicId}`);
+  await page.goto(`/b/${board.publicId}?tab=ideas`);
   await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
 });
 
@@ -107,7 +111,7 @@ test("rejecting a held post removes it, and it never reaches the board", async (
   await page.goto("/feedback?view=held");
   await expect(page.getByText(title, { exact: true })).toHaveCount(0);
 
-  await page.goto(`/b/${board.publicId}`);
+  await page.goto(`/b/${board.publicId}?tab=ideas`);
   await expect(page.getByText(title, { exact: true })).toHaveCount(0);
 });
 

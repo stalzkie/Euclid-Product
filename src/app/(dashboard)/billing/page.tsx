@@ -52,6 +52,7 @@ export default async function BillingPage() {
           hasCustomer: Boolean(ctx.workspace.polar_customer_id),
           status: ctx.workspace.subscription_status,
           periodEnd: ctx.workspace.current_period_end,
+          cancelAtPeriodEnd: ctx.workspace.cancel_at_period_end ?? false,
           trialDays: trialDays(),
           studentDiscount: Boolean(studentDiscountId()),
         }}

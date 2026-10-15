@@ -5,7 +5,7 @@ import {
   applySubscription,
   applyTopup,
   reverseTopup,
-  type SubscriptionState,
+  subscriptionStateFrom,
 } from "@/server/billing";
 
 /**
@@ -158,24 +158,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ignored: event.type });
   }
 
-  const sub = event.data as {
-    id: string;
-    customer_id: string;
-    product_id: string;
-    status: string;
-    current_period_end: string | null;
-    metadata?: Record<string, unknown> | null;
-  };
-
-  const workspaceId = sub.metadata?.workspace_id;
-  const state: SubscriptionState = {
-    subscriptionId: sub.id,
-    customerId: sub.customer_id,
-    productId: sub.product_id,
-    status: sub.status,
-    currentPeriodEnd: sub.current_period_end,
-    workspaceId: typeof workspaceId === "string" ? workspaceId : null,
-  };
+  const state = subscriptionStateFrom(event.data);
 
   const result = await applySubscription(state);
   if (!result.ok) {

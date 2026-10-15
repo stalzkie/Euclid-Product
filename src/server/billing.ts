@@ -71,6 +71,7 @@ export async function applyTopup(
     productId: state.productId,
     status: "",
     currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
     workspaceId: state.workspaceId,
   });
   if (!workspace) {
@@ -124,8 +125,52 @@ export interface SubscriptionState {
   productId: string;
   status: string;
   currentPeriodEnd: string | null;
+  /**
+   * Polar's `cancel_at_period_end`. Cancelling does not change `status` — the
+   * plan keeps running to the end of the period it is paid for — so this is
+   * the only field that says a subscription is on its way out.
+   */
+  cancelAtPeriodEnd: boolean;
   /** `workspace_id` as set in the checkout's metadata, when it survived. */
   workspaceId: string | null;
+}
+
+/**
+ * Read a Polar subscription payload into the shape this module applies.
+ *
+ * Lives here rather than inline in the webhook route so it can be tested
+ * against a real captured payload. The fields it picks out are a deliberately
+ * small subset: Polar sends the customer, product, price, discount and a
+ * nested copy of each, none of which this app trusts over the product id.
+ *
+ * `cancel_at_period_end` is the field worth being careful with. It arrived
+ * with API version 2027-01 and is absent on older ones, so anything that is
+ * not literally `true` means "not cancelled" — an absent field must not read
+ * as cancelled, which would drop a paying workspace's plan on the next event.
+ */
+export function subscriptionStateFrom(payload: unknown): SubscriptionState {
+  const sub = (payload ?? {}) as {
+    id?: unknown;
+    customer_id?: unknown;
+    product_id?: unknown;
+    status?: unknown;
+    current_period_end?: unknown;
+    cancel_at_period_end?: unknown;
+    metadata?: Record<string, unknown> | null;
+  };
+
+  const str = (value: unknown): string => (typeof value === "string" ? value : "");
+  const workspaceId = sub.metadata?.workspace_id;
+
+  return {
+    subscriptionId: str(sub.id),
+    customerId: str(sub.customer_id),
+    productId: str(sub.product_id),
+    status: str(sub.status),
+    currentPeriodEnd: typeof sub.current_period_end === "string" ? sub.current_period_end : null,
+    cancelAtPeriodEnd: sub.cancel_at_period_end === true,
+    workspaceId: typeof workspaceId === "string" ? workspaceId : null,
+  };
 }
 
 /**
@@ -207,6 +252,7 @@ export async function applySubscription(
     p_subscription_id: state.subscriptionId,
     p_status: state.status,
     p_period_end: state.currentPeriodEnd,
+    p_cancel_at_period_end: state.cancelAtPeriodEnd,
   });
 
   return error ? { ok: false, error: error.message } : { ok: true, workspace, plan };
