@@ -360,3 +360,159 @@ export async function exportPostsCsv(): Promise<string> {
 function csv(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
+
+/* --------------------------------------------------------------------------
+ * Held posts
+ *
+ * `submitPost` writes `approved: false` when a board requires approval or the
+ * spam score reaches 0.8, and every read path on both sides filters for
+ * `approved = true`. Without what follows, a held post is written and then
+ * invisible to everyone for good — including the founder, who is the one
+ * person being asked to review it.
+ * ------------------------------------------------------------------------ */
+
+export type HeldPost = {
+  id: string;
+  number: number;
+  title: string;
+  body: string | null;
+  category: string | null;
+  spamScore: number;
+  injectionFlagged: boolean;
+  createdAt: string;
+  authorEmail: string | null;
+};
+
+/** Everything waiting on the founder, oldest first — it has waited longest. */
+export async function listHeldPosts(boardId: string): Promise<HeldPost[]> {
+  const db = await supabaseServer();
+  const { data } = await db
+    .from("posts")
+    .select(
+      "id,number,title,body,category,spam_score,injection_flagged,created_at," +
+        "author:end_users(email)",
+    )
+    .eq("board_id", boardId)
+    .eq("approved", false)
+    .order("created_at", { ascending: true });
+
+  type Row = {
+    id: string;
+    number: number;
+    title: string;
+    body: string | null;
+    category: string | null;
+    spam_score: number;
+    injection_flagged: boolean;
+    created_at: string;
+    author: { email: string | null } | null;
+  };
+
+  return ((data ?? []) as unknown as Row[]).map((p) => ({
+    id: p.id,
+    number: p.number,
+    title: p.title,
+    body: p.body,
+    category: p.category,
+    spamScore: Number(p.spam_score),
+    injectionFlagged: p.injection_flagged,
+    createdAt: p.created_at,
+    authorEmail: p.author?.email ?? null,
+  }));
+}
+
+/**
+ * Release a held post onto the board.
+ *
+ * This is where the `post.created` integration event finally fires. It is
+ * deliberately skipped at submission time for a held post, because announcing
+ * one into Slack would leak a submission the founder has not read yet — which
+ * is the whole point of holding it.
+ */
+export async function approvePost(postId: string) {
+  const ctx = await requireFounder();
+  const db = await supabaseServer();
+
+  const { data: post, error: readError } = await db
+    .from("posts")
+    .select("id,number,title,body,category,status,vote_count,approved")
+    .eq("id", postId)
+    .single();
+
+  if (readError || !post) {
+    return { ok: false as const, error: readError?.message ?? "Post not found." };
+  }
+
+  // Approving twice would announce the post to Slack twice. The founder can
+  // get here from a stale tab, so check rather than assume.
+  if (post.approved) return { ok: true as const, number: post.number };
+
+  const { error } = await db.from("posts").update({ approved: true }).eq("id", postId);
+  if (error) return { ok: false as const, error: error.message };
+
+  await enqueueIntegrationEvent(ctx.board.id, "post.created", {
+    number: post.number,
+    title: post.title,
+    body: post.body,
+    category: post.category,
+    status: post.status,
+    votes: post.vote_count,
+    url: `${await appOrigin()}/b/${ctx.board.public_id}`,
+    boardName: ctx.board.name,
+  });
+
+  await db.from("activity").insert({
+    workspace_id: ctx.workspace.id,
+    board_id: ctx.board.id,
+    post_id: post.id,
+    kind: "post",
+    text: `Approved: ${post.title}`,
+    meta: "Held for review · now on the board",
+  });
+
+  drainAfterResponse({ emails: false });
+
+  revalidatePath("/feedback");
+  revalidatePath("/");
+  return { ok: true as const, number: post.number };
+}
+
+/**
+ * Reject a held post, which deletes it.
+ *
+ * Leaving it at `approved = false` would be the gentler-looking option and the
+ * worse one: the row would sit in the queue for ever, and a founder clearing
+ * spam would have to keep re-reading the same rejected posts. Nothing links to
+ * a post that was never public, so there is nothing to orphan.
+ */
+export async function rejectPost(postId: string) {
+  const ctx = await requireFounder();
+  const db = await supabaseServer();
+
+  const { data: post } = await db
+    .from("posts")
+    .select("id,title,approved")
+    .eq("id", postId)
+    .single();
+
+  // Refuse to delete a post that is already on the board. Only held posts are
+  // this action's business, and a mis-sent id should not take a live post with
+  // its votes and comments down.
+  if (post?.approved) {
+    return { ok: false as const, error: "That post is already on the board." };
+  }
+
+  const { error } = await db.from("posts").delete().eq("id", postId);
+  if (error) return { ok: false as const, error: error.message };
+
+  await db.from("activity").insert({
+    workspace_id: ctx.workspace.id,
+    board_id: ctx.board.id,
+    kind: "post",
+    text: `Rejected: ${post?.title ?? "a held post"}`,
+    meta: "Held for review · removed, never public",
+  });
+
+  revalidatePath("/feedback");
+  return { ok: true as const };
+}

@@ -1,9 +1,16 @@
 import { Shell } from "@/components/shell";
 import { requireFounder } from "@/server/context";
-import { getMergeQueueCount, getStatusCounts, listPosts, listThemes } from "@/server/queries";
+import {
+  getHeldCount,
+  getMergeQueueCount,
+  getStatusCounts,
+  listPosts,
+  listThemes,
+} from "@/server/queries";
 import { InboxTable } from "./inbox-table";
 import { MergeQueue } from "./merge-queue";
-import { listMergeQueue } from "./actions";
+import { HeldQueue } from "./held-queue";
+import { listHeldPosts, listMergeQueue } from "./actions";
 
 /** 06 · Feedback inbox — every post on this board, ranked by votes. */
 export default async function FeedbackPage({
@@ -15,19 +22,24 @@ export default async function FeedbackPage({
   const ctx = await requireFounder();
   const board = ctx.board;
 
-  const [posts, counts, themes, dupeCount] = await Promise.all([
+  const [posts, counts, themes, dupeCount, heldCount] = await Promise.all([
     listPosts(board.id, { limit: 200, search: params.q }),
     getStatusCounts(board.id),
     listThemes(board.id),
     getMergeQueueCount(board.id),
+    getHeldCount(board.id),
   ]);
 
   const showMerges = params.view === "merges";
+  const showHeld = params.view === "held";
   const groups = showMerges ? await listMergeQueue(board.id) : [];
+  const held = showHeld ? await listHeldPosts(board.id) : [];
 
   return (
     <Shell active="feedback" ctx={ctx}>
-      {showMerges ? (
+      {showHeld ? (
+        <HeldQueue posts={held} boardName={board.name} />
+      ) : showMerges ? (
         <MergeQueue groups={groups} boardName={board.name} />
       ) : (
         <InboxTable
@@ -37,6 +49,7 @@ export default async function FeedbackPage({
           boardName={board.name}
           boardCount={ctx.boards.length}
           duplicateCount={dupeCount}
+          heldCount={heldCount}
           search={params.q ?? ""}
           categories={board.categories}
         />

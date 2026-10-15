@@ -500,6 +500,23 @@ export async function getMergeQueueCount(boardId: string): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * How many posts are held for approval on this board.
+ *
+ * Counted separately from the inbox because the inbox cannot show them: every
+ * post query in the app filters `approved = true`, which is exactly why these
+ * need their own way in.
+ */
+export async function getHeldCount(boardId: string): Promise<number> {
+  const db = await supabaseServer();
+  const { count } = await db
+    .from("posts")
+    .select("id", { count: "exact", head: true })
+    .eq("board_id", boardId)
+    .eq("approved", false);
+  return count ?? 0;
+}
+
 export async function listChangelog(boardId: string): Promise<ChangelogEntry[]> {
   const db = await supabaseServer();
   const { data } = await db

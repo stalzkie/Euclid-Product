@@ -49,6 +49,7 @@ export function InboxTable({
   boardName,
   boardCount,
   duplicateCount,
+  heldCount,
   search,
   categories,
 }: {
@@ -58,6 +59,7 @@ export function InboxTable({
   boardName: string;
   boardCount: number;
   duplicateCount: number;
+  heldCount: number;
   search: string;
   categories: string[];
 }) {
@@ -158,6 +160,36 @@ export function InboxTable({
           </Button>
         </div>
       </header>
+
+      {/*
+        Held posts come before duplicates, and cannot be dismissed. A duplicate
+        is a tidiness problem the founder can ignore for a week; a held post is
+        feedback nobody can see, from someone who was told it was under review.
+        Hiding the only route to it would be the bug this banner exists to fix.
+      */}
+      {heldCount > 0 && (
+        <div
+          role="note"
+          className="flex flex-wrap items-center gap-3 rounded-[10px] border border-[#F3C9C9] bg-[#FEF0F0] px-[14px] py-[10px]"
+        >
+          <Icon name="shield" size={16} className="shrink-0 text-bad" />
+          <span className="min-w-[240px] flex-1 text-[13.5px]">
+            <strong className="font-semibold">
+              {heldCount} post{heldCount === 1 ? "" : "s"} held for approval.
+            </strong>{" "}
+            <span className="text-ink-body">
+              {heldCount === 1 ? "It is" : "They are"} invisible on the board until
+              you review {heldCount === 1 ? "it" : "them"}.
+            </span>
+          </span>
+          <Link
+            href="/feedback?view=held"
+            className="flex h-[30px] items-center rounded-[7px] bg-bad px-3 text-[12.5px] font-medium text-white no-underline hover:brightness-95"
+          >
+            Review {heldCount === 1 ? "it" : "them"}
+          </Link>
+        </div>
+      )}
 
       {duplicateCount > 0 && !dismissed && (
         <div
