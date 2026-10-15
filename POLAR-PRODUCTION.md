@@ -26,7 +26,9 @@ Polar has **approved** the account. Since then:
       Vercel production, and deployed. `POLAR_SERVER=production`.
 - [x] **Preflight green against production**, discounts included — the token
       has `discounts:read`, which sandbox's did not.
-- [x] **All six scopes on the token**, as of 2026-10-15. `checkouts:write` and
+- [x] **Exactly the six scopes on the token**, as of 2026-10-15.
+      `checkout_links:write` and `benefits:write` were removed the same day;
+      probing after shows 403 for both, and 422 for the two the app needs. `checkouts:write` and
       `customer_sessions:write` were added to `Euclid-Production`, joining
       `products:read`, `discounts:read`, `webhooks:read` and `orders:read`.
       Confirmed from the app's side rather than from the toast: a POST with a
