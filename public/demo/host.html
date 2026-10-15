@@ -59,6 +59,19 @@
     // throwaway board it created, not the seeded one.
     var q = new URLSearchParams(location.search);
     var mode = q.get("mode") === "inline" ? "inline" : "floating";
+
+    // A signed token, for the JWT-identity specs. A real host page would mint
+    // this server-side and hand it over the same way; the query param only
+    // saves the suite from standing up an endpoint to say one string. Defined
+    // before the loader is appended, because the loader reads
+    // window.EuclidIdentity the moment it mounts.
+    var token = q.get("token");
+    if (token) {
+      window.EuclidIdentity = function () {
+        return Promise.resolve(token);
+      };
+    }
+
     var s = document.createElement("script");
     s.src = "/widget.js";
     s.async = true;
