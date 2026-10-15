@@ -11,7 +11,7 @@ descriptions below are what is actually configured, not what was intended.
 
 ---
 
-## Status, 2026-10-13
+## Status, 2026-10-15
 
 Polar has **approved** the account. Since then:
 
@@ -26,16 +26,21 @@ Polar has **approved** the account. Since then:
       Vercel production, and deployed. `POLAR_SERVER=production`.
 - [x] **Preflight green against production**, discounts included — the token
       has `discounts:read`, which sandbox's did not.
-- [ ] **Two scopes missing from the token.** It carries `products:read`,
-      `discounts:read` and `webhooks:read`, but **not `checkouts:write` or
-      `customer_sessions:write`** — so right now `/api/billing/checkout`,
-      `/api/billing/topup` and the billing-portal button all answer 502 on the
-      live site. Add both to the `Euclid-Production` token
-      (Settings → Developers → Update). Nothing else is affected: boards, the
-      widget and the dashboard are untouched.
-- [ ] The first real purchase, once the scopes are there.
+- [x] **All six scopes on the token**, as of 2026-10-15. `checkouts:write` and
+      `customer_sessions:write` were added to `Euclid-Production`, joining
+      `products:read`, `discounts:read`, `webhooks:read` and `orders:read`.
+      Confirmed from the app's side rather than from the toast: a POST with a
+      bogus id answers **422** for both, where it answered 403 before. No
+      redeploy was needed — the token's value did not change, only its scopes,
+      so Vercel was already carrying the upgraded token.
+- [ ] The first real purchase and refund on production.
 
 Two things caught while doing it, both of which would have failed silently:
+
+- **The token's re-auth prompt is a full-page redirect.** "Please sign in
+  again" → Confirm navigates the whole tab to `polar.sh/auth?return_to=…`, and
+  the half-filled scope form dies with the page. Sign in first; with a fresh
+  session the prompt does not fire and the update saves on the first attempt.
 
 - **A new webhook endpoint defaults to API version `2026-10`**, while the app
   imports `@polar-sh/sdk/2027-01`. Field names differ between versions, so the
