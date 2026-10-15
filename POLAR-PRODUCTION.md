@@ -33,7 +33,12 @@ Polar has **approved** the account. Since then:
       bogus id answers **422** for both, where it answered 403 before. No
       redeploy was needed — the token's value did not change, only its scopes,
       so Vercel was already carrying the upgraded token.
-- [ ] The first real purchase and refund on production.
+- [x] **The first real purchase and refund**, 2026-10-15. A $5 Build Prompt
+      pack on a real card granted 50 prompts through `order.paid` ->
+      `apply_topup`, and a dashboard refund with **Revoke benefits** ticked
+      took them back off through `order.refunded`. The grant floors at zero on
+      reversal rather than going negative. An Indie trial was started first,
+      because top-ups are deliberately not offered on free.
 
 Two things caught while doing it, both of which would have failed silently:
 
