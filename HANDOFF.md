@@ -1,6 +1,6 @@
 # Where this stands
 
-Written 2026-10-12, updated 2026-10-19. Read this first in a new session;
+Written 2026-10-12, updated 2026-10-20. Read this first in a new session;
 `README.md` explains how the product works, this explains what state it is in,
 and `ROADMAP.md` tracks what is in flight.
 
@@ -14,7 +14,7 @@ hashed-IP bucket, so clearing cookies is no longer a reset. The 4-for-3
 promotion is built end to end and exercised without spending anything. There
 is a setup checklist on the dashboard home and an operator page at `/admin`
 with queues, billing, AI usage, a derived funnel and grouped errors. Email can
-carry an HTML part. **Test count is now 575 across 31 files.**
+carry an HTML part.
 
 The three things most worth knowing from that day, because each was found by
 looking at live data rather than by reading code:
@@ -27,15 +27,30 @@ looking at live data rather than by reading code:
 - The promo's *grant* was idempotent and its *email* was not, so Polar's three
   deliveries sent three copies. Fixed in `0028`.
 
-**Configuration closed out the same day.** The promotion's Polar discount now
-exists — `Launch 4-for-3`, `35e92fad-7d90-41dc-93eb-05b08f77aab0`, 25%
-repeating over 4 months on Indie Monthly, capped at 50 redemptions and 1 per
-customer, codeless like the other two. `POLAR_DISCOUNT_INDIE3`, the three
-e-mail sender variables and `ADMIN_EMAILS` are set in `.env.local` and on
-Vercel production, and `http://localhost:3000/**` is in Supabase's redirect
-allow-list. **These take effect on the next deploy**: Vercel reads environment
-variables at build time, so until then `/admin` still 404s and the promo
-checkout still falls through to the launch discount.
+**2026-10-20: configuration landed, and it is live.** The promotion's Polar
+discount exists — `Launch 4-for-3`,
+`35e92fad-7d90-41dc-93eb-05b08f77aab0`, 25% repeating over 4 months on Indie
+Monthly, capped at 50 redemptions and 1 per customer, codeless like the other
+two. `POLAR_DISCOUNT_INDIE3`, the three e-mail sender variables and
+`ADMIN_EMAILS` are set in `.env.local` and on Vercel production;
+`http://localhost:3000/**` is in Supabase's redirect allow-list; and
+**production has been deployed**, so all of it is in effect rather than
+merely configured.
+
+Each was checked by its effect, not by the variable being present:
+
+- **The discount prices correctly.** A live checkout quote returns Indie
+  Monthly at `$12.00` list and `$9.00` with the promo, a `-$3.00` line.
+  Nothing was charged — a checkout session is a quote until someone pays it.
+- **`/admin` loads** instead of 404ing, and every panel answers against real
+  data. The funnel is cumulative, so the old "Paid 200%" cannot recur.
+  **Open errors: none** after the deploy, which is the result worth having
+  from the two code changes below going out.
+- **The redirect wildcard is honoured.** `generate_link` returns
+  `redirect_to` unchanged for paths the old exact entry never covered.
+
+The e-mail sender variables are the one thing **not** confirmed by effect:
+that needs an actual send. See "What is left".
 
 The open question about the trial is closed, and the answer was free. A 7-day
 trial does **not** consume one of the four discounted months, so four is the
@@ -45,6 +60,34 @@ reading Polar's source, which is both cheaper and more certain than the
 sandbox purchase the roadmap had budgeted for; `ROADMAP.md` §1 cites the
 lines.
 
+**Two faults fixed and one accusation withdrawn, 2026-10-20.**
+
+- **`0030_retry_on_the_db_clock.sql`.** `deliver_after` was written on the
+  app's clock and compared against the database's. Ahead is harmless; behind
+  is not — a server trailing the database computes a retry that is already
+  due, so the backoff does nothing and a magic link's five attempts are spent
+  in however long five requests take. `fail_queued_email` and
+  `fail_integration_delivery` now take a delay in seconds and do
+  `now() + make_interval(...)` themselves. `retryAfter` is deleted rather
+  than deprecated: it was correct on any machine whose clock happened to
+  agree, which is how it survived the run that measured it.
+- **The webhook host allow-list now runs where the request is made**, not
+  only where a founder types the URL. The value is read back out of a row
+  much later and turned into a server-side POST, and the list exists because
+  that reaches cloud metadata endpoints. "Only one writer" holds until a
+  backfill makes it false.
+- **The e2e suite does not stamp `installed_at`**, contrary to what
+  `ROADMAP.md` claimed. `widget.spec.ts` drives a host page Next serves from
+  the app itself, so the Origin is always loopback or our own host, and
+  `countsAsInstall` already refuses both.
+
+The trial-reminder and student-verification e-mails gained HTML parts. The
+magic link and the student *review* note deliberately did not — see
+`ROADMAP.md` §4 for why each.
+
+**Test count is now 597 unit across 31 files**, plus 71 integration and 21
+Playwright specs, all run green on 2026-10-20 against the real database.
+
 Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
 ## Current state
@@ -53,16 +96,23 @@ Everything in the PRD is built, plus billing and student verification, which
 the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
-npm run verify            # typecheck + lint + 460 unit tests
-npm run test:integration  # 57 tests, needs the app running
-npm run test:e2e          # 14 browser tests, needs the app running
+npm run verify            # typecheck + lint + 597 unit tests
+npm run test:integration  # 71 tests, needs the app running
+npm run test:e2e          # 21 browser tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at 2026-10-13: **460 unit tests across 22 files**, **57 integration
-tests**, **14 browser tests across 3 specs**, lint clean with zero warnings.
+Counts at 2026-10-20, all three suites run green that day: **597 unit tests
+across 31 files**, **71 integration tests across 6 files**, **21 browser
+specs across 5 files**, lint clean with zero warnings.
 
-**Sixteen migrations, all applied to the live database.** `0011_billing`,
+The integration and browser suites need a *built* app — `npx next build &&
+npm run start`, not `next dev` — and with no Docker on this machine they run
+against the production Supabase project, creating and destroying their own
+fixtures. Both print their target before starting.
+
+**Thirty migrations, all applied to the live database**, `0030` as of
+2026-10-20. `0011_billing`,
 `0012_student` and `0013_workspace_bootstrap` were confirmed present in
 production by querying `pg_proc` for `apply_subscription`, `verify_student`
 and `create_workspace`. `0014_definer_search_path` was confirmed by checking
@@ -104,71 +154,64 @@ never asked for:
 
 | Addition | State |
 |---|---|
-| Billing through Polar: checkout, portal, webhook | Live in **sandbox** |
-| 7-day trial, launch promotion, student rate | Live in **sandbox** |
+| Billing through Polar: checkout, portal, webhook | Live in **production** |
+| 7-day trial, launch promotion, student rate | Live in **production** |
+| 4-for-3 promotion with a Bernn Pro month | Live in **production** |
 | Student verification by school email | Built, never run end to end |
 
 **`SESSION-2026-10-13.md`** is the log of the day Polar went to production:
 what was done, what is still open, and the traps that cost time. It also
-carries the one thing currently blocking payments — two missing token scopes.
+carries the traps from that day. The two missing token scopes it names as
+blocking payments were added on 2026-10-15; nothing blocks payments now.
 
 ## Start here
 
-**Out of date below.** The student verification email, the moderation queue,
-the JWT identity spec and the token scopes were all closed on 2026-10-15 —
-see the end of `SESSION-2026-10-13.md`. What remains open from this list is
-item 1, and `ROADMAP.md` carries everything newer.
+**Mostly closed.** The student verification email, the moderation queue, the
+JWT identity spec and the token scopes were closed on 2026-10-15; the Polar
+flip is done; the integration outbox is exercised everywhere but its success
+leg. The live short list is at the top of "What is left" below — this
+section is the older, fuller reasoning behind each.
 
 Ordered by what actually blocks a launch. Detail for each is further down.
 
-1. **Flip Polar from sandbox to production.** The live site currently points at
-   sandbox, which is safe only because the sole workspace is the founder's own.
+1. **Polar is on production. This is done.** The flip happened on
+   2026-10-15: Polar approved the account, eight products and (now) three
+   discounts exist in the production org, `POLAR_SERVER=production`, and a
+   real card payment and a real refund have both gone through the webhook.
+   `POLAR-PRODUCTION.md` is the current account; `SESSION-2026-10-13.md` is
+   the log of the day it moved.
 
-   **Blocked on Polar's own review, as of 2026-10-13.** A production org
-   exists at `polar.sh/dashboard/euclid`, but Finance → Account shows "Account
-   Review · Verify your business so customers can buy from you", 5 of 7
-   required steps done, with "Create your first product" and "Set up checkout"
-   outstanding and a **Submit for review** button not yet pressed. Until Polar
-   approves, a real checkout cannot complete whatever the app is configured
-   with. Submitting identity and business details is the founder's to do.
+   **`node scripts/polar-preflight.mjs` is still worth running** before
+   touching anything billing-shaped, and is green. It asks Polar what the
+   configured ids actually are, on whichever server `POLAR_SERVER` names,
+   and exits non-zero if the environment could not sell correctly. It
+   catches the whole class in one call: a production id read against
+   sandbox is a 404, a sandbox token used against production is a 401, and
+   — the one nothing else would catch — a monthly and a yearly id swapped
+   between slots resolve perfectly well and quietly sell the wrong billing
+   period. It also checks that every product sits in one organisation, that
+   none is archived or unpriced, that no two slots share an id, that the
+   trial matches `POLAR_TRIAL_DAYS`, and that the 4-for-3 discount is
+   repeating over four months on Indie Monthly alone rather than merely
+   existing.
 
-   **`POLAR-PRODUCTION.md` is the step-by-step**: all eight products with
-   their exact names, prices, intervals and descriptions as configured in
-   sandbox, both discounts, the token scopes, the webhook endpoint with the
-   thirteen events to tick, the fourteen environment variables and how to
-   verify the lot.
+   It does **not** check product amounts, which is how the yearly price
+   discrepancy in "What is left" item 8 went unnoticed.
 
-   Needs: **ten** ids now, not six — four plan products, two discounts and the
-   four top-up packs — all recreated in the production org, plus
-   `POLAR_SERVER=production`, a production token, and a production webhook
-   endpoint with `order.paid` and `order.refunded` ticked. All swapped
-   **together** —
-   sandbox and production are separate accounts, and a mismatched id makes
-   every webhook fail closed with "Unknown Polar product". Polar also has to
-   finish payout/KYC before a real checkout can complete, which is not instant
-   and is worth starting early.
+2. **Exercise the integration outbox's success leg.** Everything around it
+   now runs: `tests/integration/integrations.test.ts` was run against the
+   real database and a built app on 2026-10-19 and covers
+   `enqueueIntegrationEvent` -> `integration_deliveries` ->
+   `deliverIntegrationEvents` -> payload -> POST -> failure -> backoff ->
+   deactivation. What has never happened is a **2xx from a real webhook**,
+   and **Slack has received nothing at all** — its payload is
+   `blocks`/mrkdwn where Discord's is `embeds`. Paste a URL into the install
+   screen and press "Send a test message".
 
-   **Run `node scripts/polar-preflight.mjs` before and after.** It asks Polar
-   what the configured ids actually are, on whichever server `POLAR_SERVER`
-   names, and exits non-zero if the environment could not sell correctly. It
-   catches the whole failure mode in one call: a production id read against
-   sandbox is a 404, a sandbox token used against production is a 401, and —
-   the one nothing else would catch — a monthly and a yearly id swapped between
-   slots resolve perfectly well and quietly sell the wrong billing period.
-   It also checks that all four products sit in one organisation, that none is
-   archived or unpriced, that no two slots share an id, and that the trial on
-   the products matches `POLAR_TRIAL_DAYS`, which is what the upgrade button
-   promises. Green against sandbox today.
-
-2. **Exercise the integration outbox.** Post on the live board and confirm
-   Discord fires within seconds. `sendTestMessage` and the manual script both
-   call `postToWebhook` directly, so `enqueueIntegrationEvent` ->
-   `integration_outbox` -> `deliverIntegrationEvents` has still never run
-   against a real endpoint. `drainAfterResponse` should deliver immediately; if
-   it waits for the daily cron, that is a real finding and nothing tests it.
-
-3. **Send one student verification email.** Same shape of gap: the redeem path
-   works in production, the mailing leg has never run.
+3. **Send one student verification email.** Same shape of gap: the redeem
+   path works in production, the mailing leg has never run. The same send
+   would confirm the e-mail sender variables, which are deployed but
+   unproven — see the short list under "What is left".
 
 4. **Nothing is waiting on a more frequent cron any more.** Changing
    `/api/jobs/run` to `*/10 * * * *` needs Vercel Pro, and the founder has
@@ -184,6 +227,28 @@ stands up Supabase. It found two real widget bugs on its first run; see
 
 ## What is left
 
+**0. The short list, as of 2026-10-20.** Everything below this is background
+on how each piece got to where it is; these are the things nobody has done.
+
+- **Send one real e-mail.** `EMAIL_FROM`, `EMAIL_REPLY_TO` and
+  `EMAIL_SIGN_OFF` are set and deployed but are the only configuration not
+  confirmed by its effect — that needs a send. `node scripts/send-test.mjs`
+  does it. It also answers the open question underneath them: **does
+  `business@euclidhq.com` actually receive?** Every template signs off
+  promising a reply, so a send-only address silently swallows them.
+- **Slack has still received nothing**, and the integration outbox's success
+  leg — a 2xx from a real webhook — has never run. Everything around it has
+  (see `ROADMAP.md`). Paste a webhook URL into the install screen and press
+  "Send a test message"; that closes both at once, and Slack's payload is
+  `blocks`/mrkdwn where Discord's is `embeds`, so Discord working proves
+  nothing about it.
+- **The yearly prices on the billing page and in Polar disagree.** See the
+  note at the end of this section.
+- **SPF, DKIM and DMARC** are not set on the sending domain. Deliberately
+  deferred on 2026-10-19: mail reaches Primary without them.
+- Two items belong to Bernn's repo, which is not on this machine: a test for
+  `PromoCodesRepository`, and `GET /partners/promo-codes/status`.
+
 1. **DNS is done.** `app.euclidhq.com` has its CNAME at Hostinger
    (`app CNAME 3687d9a0e68ed4d8.vercel-dns-017.com.`, TTL 300), Vercel reports
    the domain `configured-correctly`, and the certificate is issued. The
@@ -197,17 +262,24 @@ stands up Supabase. It found two real widget bugs on its first run; see
    The `euclid` project, and `euclidhq.com` itself, serve the marketing site —
    a separate project. Do not deploy this app over it.
 
-2. **Billing is built on Polar and wired up in sandbox.** The code is
+2. **Billing runs on Polar, in production.** Much of what follows was
+   written while it was still sandbox and is kept for the traps it records —
+   but read it knowing the flip happened on **2026-10-15**, took a real
+   payment and a real refund, and `POLAR_SERVER=production` today.
+   `POLAR-PRODUCTION.md` is the current account of the production org.
+
+   The code is
    `/api/billing/checkout`, `/api/billing/portal` and `/api/billing/webhook`,
    with `0011_billing.sql` and `src/lib/polar.ts`. Polar is the merchant of
    record; the webhook is the only thing that can move a workspace between
    tiers, and `changePlan` refuses once billing is configured.
 
-   **Applied to production: migration `0011` is live on the Supabase project**,
-   and the deployment carries the sandbox Polar variables. The sandbox org has
-   four products ($12/mo, $120/yr, $29/mo, $288/yr), an organisation token that
-   never expires, and a webhook at `https://app.euclidhq.com/api/billing/webhook`
-   on format **Raw** and API version **2027-01**.
+   **Applied to production: migration `0011` is live on the Supabase
+   project.** The sandbox org — the subject of the paragraphs below — had
+   four products, an organisation token that never expires, and a webhook at
+   `https://app.euclidhq.com/api/billing/webhook` on format **Raw** and API
+   version **2027-01**. The production org now has eight products, three
+   discounts and the same webhook settings.
 
    Both of those last two matter and neither fails loudly. Picking Discord or
    Slack format reshapes the payload into something `validateEvent` will not
@@ -268,16 +340,18 @@ stands up Supabase. It found two real widget bugs on its first run; see
    `credentials: "include"` reuses the session cookie against
    `sandbox-api.polar.sh`.
 
-   **The deployment is pointed at sandbox Polar.** Before real customers, swap
-   `POLAR_SERVER` to `production` *and* the four product ids together — they
+   **That swap has happened.** `POLAR_SERVER=production` and all the ids
+   moved together, which was the thing that had to be done atomically: they
    are separate accounts, and mismatched ids make every webhook fail closed
    with "Unknown Polar product". `scripts/polar-preflight.mjs` is the check
-   for exactly that; see item 1 under "Start here".
+   for exactly that and is green.
 
-   The preflight cannot verify the two discount ids. The organisation token
-   has no `discounts:read`, so it says so rather than reporting a green tick
-   over something it never looked at. A wrong discount id surfaces as a
-   refused checkout, not a wrong price, which is the less dangerous half.
+   The note that used to sit here — "the preflight cannot verify the
+   discount ids, because the token has no `discounts:read`" — applied to the
+   sandbox token. The production one **does** have that scope, so all three
+   discounts are checked, and since 2026-10-19 the 4-for-3 one is checked
+   for its shape rather than only its existence. What the preflight still
+   does not look at is product **amounts**; see item 8 above.
 
 3. **Student verification has never been run end to end.** The code is there
    and unit-tested — `src/lib/student.ts`, `src/server/student.ts`,
@@ -349,7 +423,9 @@ stands up Supabase. It found two real widget bugs on its first run; see
 
    **Still not covered:** the dashboard server actions have only unit tests
    on their pure logic, and Slack's payload shape is still unexercised end
-   to end — that one needs a live webhook rather than a spec.
+   to end — that one needs a live webhook rather than a spec. The dashboard
+   actions are reachable through the browser suite, so the gap is unit
+   coverage of their effects, not of the flows.
    `scripts/widget-e2e.mjs` remains as a manual API harness.
 
 5. **A real Discord webhook has now received messages.** On 2026-10-13 all
@@ -358,12 +434,18 @@ stands up Supabase. It found two real widget bugs on its first run; see
    The payloads came from `chatPayload` itself rather than being hand-written,
    so this exercised the real builder and the real allow-list.
 
-   **What it did not prove:** the outbox. `sendTestMessage` — and the script
-   used here — call `postToWebhook` directly, so `enqueueIntegrationEvent` ->
-   `integration_outbox` -> `deliverIntegrationEvents` is still unexercised
-   against a real endpoint. Posting on the live board is what would close that;
-   `drainAfterResponse` should deliver within seconds rather than waiting for
-   the daily cron, and if it does not, that is a real finding.
+   **What it did not prove:** the outbox. `sendTestMessage` and the script
+   used that day call `postToWebhook` directly, so the queue was not
+   involved.
+
+   **Most of that gap closed on 2026-10-19.**
+   `tests/integration/integrations.test.ts` runs against the real database
+   and a built app and covers `enqueueIntegrationEvent` ->
+   `integration_deliveries` -> `deliverIntegrationEvents` -> payload ->
+   POST -> failure -> backoff -> deactivation, plus which integrations do
+   and do not get queued for an event. What is left is the success leg: a
+   **2xx from a real webhook**, which a test suite has no business owning a
+   URL for.
 
    Slack has still never received anything. Its payload is a different shape
    (`blocks` and mrkdwn, not `embeds`), so Discord working says nothing about
@@ -408,6 +490,36 @@ stands up Supabase. It found two real widget bugs on its first run; see
 
 7. **The moderation queue holds nothing on the real board.** The integration
    test covers the code path; no real post has ever been held for approval.
+   The browser suite does cover it — `moderation.spec.ts`, three specs — so
+   what is untested is the real board, not the feature.
+
+8. **The billing page and Polar disagree about the yearly prices.** Found on
+   2026-10-20 while reconciling the docs, and left alone deliberately,
+   because resolving it is a pricing decision rather than a bug fix.
+
+   | Plan | Billing page says | Polar actually charges |
+   |---|---|---|
+   | Indie yearly | $10/mo billed yearly — **$120/yr** | **$100/yr** |
+   | Pro yearly | $24/mo billed yearly — **$288/yr** | **$240/yr** |
+
+   `src/lib/plans.ts` stores `yearly` as the *per-month equivalent* (10 and
+   24) and `billing-view.tsx` renders it as "/ mo, billed yearly" under a
+   "Yearly · 2 months free" toggle. Two months free off $12 and $29 is
+   exactly $120 and $288, so the page is internally consistent — it is the
+   Polar products that are cheaper than the page promises, by $20 and $48 a
+   year.
+
+   Nobody is overcharged, which is why this is not urgent: every yearly
+   customer pays less than they were quoted. But the toggle's "2 months
+   free" is wrong in the customer's favour (it is nearer three and a half),
+   and the two numbers should not be allowed to drift further apart.
+
+   The PRD does not settle it — it proposes monthly prices only ($12 and
+   $29) and never names a yearly one, so there is no authority to defer to.
+   Either lower `plans.ts` to 8.33 and 20, or raise the two Polar products
+   to $120 and $288. `scripts/polar-preflight.mjs` checks the four product
+   ids and their intervals but not their amounts, which is why this went
+   unnoticed; it could.
 
 ## AI cost, and what it is measured at
 
@@ -529,10 +641,13 @@ were deleted afterwards.
 The Polar webhook endpoint subscribes to a list of event types, and it had
 only the eleven `subscription.*` events ticked. `order.paid` was never sent —
 no request reached the server at all, so there was nothing to debug in the
-app. `order.paid` is now ticked on the sandbox endpoint. **Both `order.paid` and `order.refunded` will have to be
-ticked again on the production endpoint**, and that is invisible from the
-code: the app looks correct, the checkout completes, the customer is charged,
-and nothing happens.
+app. `order.paid` was then ticked on the sandbox endpoint. **Both `order.paid`
+and `order.refunded` are ticked on the production endpoint too** — all
+thirteen events are, as of 2026-10-15, and a real purchase and refund have
+since gone through both. Keep the failure mode in mind for any endpoint
+anyone creates later, because it is invisible from the code: the app looks
+correct, the checkout completes, the customer is charged, and nothing
+happens.
 
 Setting them is fiddlier than it looks. A synthetic `.click()` on the toggle
 flips `aria-checked` and the hidden input and still does not reach the form

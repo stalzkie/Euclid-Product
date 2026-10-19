@@ -1,9 +1,14 @@
 # In flight
 
-Written 2026-10-19. `HANDOFF.md` says what state the product is in;
-`SESSION-2026-10-13.md` is the log of the day Polar went to production. This
-file is narrower: the three things started on 2026-10-19 and not yet finished,
-and what is left of each.
+Written 2026-10-19, updated 2026-10-20. `HANDOFF.md` says what state the
+product is in; `SESSION-2026-10-13.md` is the log of the day Polar went to
+production. This file is narrower: the things started on 2026-10-19 and what
+is left of each.
+
+**Most of this is now done.** The four sections below are kept because the
+reasoning in them is still the reasoning behind what shipped — not because
+they are outstanding. What actually remains is the short list at the top of
+`HANDOFF.md` §"What is left".
 
 Tick a box when the thing behind it has actually run, not when the code is
 written. Half of what cost time in this repo was something that was built,
@@ -45,6 +50,10 @@ the subscription keeps renewing at $12 afterwards instead of ending.
 
 ### Left
 
+- [x] **Verified live on 2026-10-20.** A checkout quote against the
+      production API returns Indie Monthly at `$12.00` list and `$9.00` with
+      the promo, a `-$3.00` line — exactly 25%, nothing charged, since a
+      checkout session is a quote until someone pays it.
 - [x] **Polar discount created, 2026-10-19.** `Launch 4-for-3`,
       `35e92fad-7d90-41dc-93eb-05b08f77aab0` — 25%, `duration: repeating`,
       `duration_in_months: 4`, products `[Euclid Indie - Monthly]`,
@@ -305,7 +314,9 @@ will, and the reason to build them anyway is one place and one bill.
       Both founder accounts are allow-listed rather than only the active one,
       because the gate matches on the session's email and signing in with the
       other would 404 with nothing to explain why.
-      **Takes effect on the next deploy** — Vercel reads env at build time.
+      **Deployed and confirmed on 2026-10-20**: `/admin` loads, every panel
+      answers against real data, the funnel reads cumulatively so the old
+      "Paid 200%" cannot recur, and the errors panel is empty.
 - [ ] Panel 3 gains "redeemed" once Bernn exposes it — see section 1.
 
 ---

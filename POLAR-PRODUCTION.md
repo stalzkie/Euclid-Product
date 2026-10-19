@@ -11,13 +11,17 @@ descriptions below are what is actually configured, not what was intended.
 
 ---
 
-## Status, 2026-10-15
+## Status, 2026-10-20
 
 Polar has **approved** the account. Since then:
 
 - [x] **Eight products** created in the production org.
-- [x] **Two discounts** created — Launch 20% (once, ends Nov 11) and Student
-      (50%, forever), both codeless.
+- [x] **Three discounts** created, all codeless. Launch 20% (once, ends
+      Nov 11) and Student (50%, forever) on 2026-10-13; **Launch 4-for-3**
+      (`35e92fad-7d90-41dc-93eb-05b08f77aab0`, 25% repeating over 4 months,
+      Indie Monthly only, max 50 redemptions and 1 per customer) on
+      2026-10-19. The third was quoted live on 2026-10-20: $12.00 becomes
+      $9.00.
 - [x] **Webhook endpoint** created at `https://app.euclidhq.com/api/billing/webhook`,
       format raw, **API version 2027-01**, all **13 events** including
       `order.paid` and `order.refunded`.
@@ -25,7 +29,12 @@ Polar has **approved** the account. Since then:
 - [x] **Environment swapped.** All fourteen variables set in `.env.local` and
       Vercel production, and deployed. `POLAR_SERVER=production`.
 - [x] **Preflight green against production**, discounts included — the token
-      has `discounts:read`, which sandbox's did not.
+      has `discounts:read`, which sandbox's did not. Extended on 2026-10-19
+      to check the 4-for-3 discount's *shape*, not only that its id
+      resolves: a `once` duration would pay one discounted month instead of
+      four and nobody would find out until the second invoice. It does not
+      check product *amounts* — see the price discrepancy in `HANDOFF.md`
+      §"What is left" item 8, which is why that went unnoticed.
 - [x] **Exactly the six scopes on the token**, as of 2026-10-15.
       `checkout_links:write` and `benefits:write` were removed the same day;
       probing after shows 403 for both, and 422 for the two the app needs. `checkouts:write` and
@@ -87,6 +96,15 @@ site starts failing.
 One block per product, in the order Polar's **Products → New** form asks for
 them, so nothing has to be looked up in a second place while typing. Create
 them in any order; tick them off as the ids come back.
+
+> **The two yearly amounts below do not match what is live.** This document
+> says $120.00 and $288.00; the production products are **$100.00** and
+> **$240.00**, confirmed by `scripts/polar-preflight.mjs` on 2026-10-20.
+> The billing page agrees with this document, not with Polar, so yearly
+> customers are charged less than they were quoted. Which number is right
+> is an open pricing decision — see `HANDOFF.md` §"What is left" item 8.
+> Nothing here has been changed to one or the other, because picking would
+> be making that decision silently.
 
 What you are creating, at a glance:
 
