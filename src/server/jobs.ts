@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
 import { generateDigest } from "@/lib/ai/clustering";
 import { hasAnthropic } from "@/lib/ai/client";
-import { retryAfter, retriesLeft } from "@/lib/retry";
+import { retryDelaySeconds, retriesLeft } from "@/lib/retry";
 
 /**
  * Background work. Anything slow or expensive runs here so board reads stay
@@ -68,13 +68,15 @@ export async function sendQueuedEmails(limit = 50): Promise<EmailResult> {
     // error it died of is what is left behind: there is nothing to deactivate
     // the way a dead webhook deactivates its integration, and a mailbox that
     // has refused five times is not one more attempt away from working.
-    await db
-      .from("email_outbox")
-      .update({
-        last_error: outcome.error.slice(0, 500),
-        deliver_after: retryAfter(email.attempts),
-      })
-      .eq("id", email.id);
+    // Through the function rather than a plain update, so `deliver_after` is
+    // computed as `now() + interval` on the database's clock. Computing it
+    // here used this machine's, and a server running behind the database
+    // would schedule a retry that was already due — no backoff at all.
+    await db.rpc("fail_queued_email", {
+      p_id: email.id,
+      p_error: outcome.error,
+      p_delay_seconds: retryDelaySeconds(email.attempts),
+    });
 
     if (!retriesLeft(email.attempts)) {
       console.warn(

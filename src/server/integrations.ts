@@ -7,7 +7,7 @@ import {
   type IntegrationKind,
   type PostEventData,
 } from "@/lib/integrations";
-import { RETRY_MAX_ATTEMPTS, retryAfter } from "@/lib/retry";
+import { RETRY_MAX_ATTEMPTS, retryDelaySeconds } from "@/lib/retry";
 
 /**
  * Delivering integration events.
@@ -108,15 +108,14 @@ export async function deliverIntegrationEvents(limit = 20): Promise<DeliveryResu
     result.failed += 1;
     const exhausted = delivery.attempts >= MAX_ATTEMPTS;
 
-    await db
-      .from("integration_deliveries")
-      .update({
-        last_error: outcome.error.slice(0, 500),
-        // Back off so a service having a bad hour is retried later, not
-        // hammered. 1, 4, 9, 16 minutes.
-        deliver_after: retryAfter(delivery.attempts),
-      })
-      .eq("id", delivery.id);
+    // Back off so a service having a bad hour is retried later, not hammered:
+    // 1, 4, 9, 16 minutes. Through the function so the database adds the delay
+    // to its own clock — see 0030.
+    await db.rpc("fail_integration_delivery", {
+      p_id: delivery.id,
+      p_error: outcome.error,
+      p_delay_seconds: retryDelaySeconds(delivery.attempts),
+    });
 
     await db
       .from("integrations")

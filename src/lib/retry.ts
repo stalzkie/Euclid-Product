@@ -45,7 +45,21 @@ export function retriesLeft(attempts: number): boolean {
   return attempts < RETRY_MAX_ATTEMPTS;
 }
 
-/** The timestamp to store in a `deliver_after` column after a failure. */
-export function retryAfter(attempts: number, now = new Date()): string {
-  return new Date(now.getTime() + retryDelayMs(attempts)).toISOString();
+/**
+ * The same delay in whole seconds, which is what the two `fail_*` functions
+ * in 0030 take.
+ *
+ * A delay rather than a timestamp, and that is the whole point. `deliver_after`
+ * is only ever compared against the database's `now()`, so a timestamp computed
+ * here was a value from one clock being read by another — and a server running
+ * *behind* the database would compute a `deliver_after` already in the past and
+ * retry with no backoff at all. Sending how long to wait and letting the
+ * database add it to its own clock cannot drift, however far apart the two are.
+ *
+ * There is deliberately no `retryAfter` returning a timestamp any more. It
+ * would still be correct wherever the clocks happen to agree, which is exactly
+ * what made the fault survive a proof run that measured it.
+ */
+export function retryDelaySeconds(attempts: number): number {
+  return Math.round(retryDelayMs(attempts) / 1000);
 }
