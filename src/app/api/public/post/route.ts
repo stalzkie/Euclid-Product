@@ -8,6 +8,7 @@ import {
   submitPost,
 } from "@/server/public-board";
 import { cors, preflight } from "../cors";
+import { requestIpBucket } from "@/server/ip";
 import { drainAfterResponse } from "@/server/dispatch";
 
 const Body = z.object({
@@ -41,6 +42,8 @@ export async function POST(request: NextRequest) {
     cookieKey: request.cookies.get(VISITOR_COOKIE)?.value ?? null,
     token: parsed.data.token ?? null,
     email: null,
+    // Second rate-limit key, so a budget survives someone clearing cookies.
+    ipKey: requestIpBucket(request.headers),
   });
   if (!viewer) {
     return cors(NextResponse.json({ error: "Could not identify you" }, { status: 401 }));

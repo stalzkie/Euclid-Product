@@ -48,6 +48,12 @@ export function InstallPanel({
     identityMode,
   });
   const hostedUrl = `${origin}/b/${boardPublicId}`;
+  // Matches the loopback hosts originAllowed() accepts, so the note below
+  // disappears exactly when the founder has made it unnecessary.
+  const allowsLoopback = allowedDomains.some((d) => {
+    const clean = d.trim().toLowerCase().replace(/^\*\./, "");
+    return clean === "localhost" || clean === "127.0.0.1" || clean.endsWith(".localhost");
+  });
   const spec = FRAMEWORKS.find((f) => f.id === framework) ?? FRAMEWORKS[0];
 
   // Poll for the first widget request from the founder's app. Stops as soon as
@@ -176,6 +182,27 @@ export function InstallPanel({
           <Banner tone="warn" icon="warn">
             No domains are allow-listed for {boardName}, so the widget will load anywhere.
             Add your app&apos;s domain in the board settings before you launch.
+          </Banner>
+        )}
+
+        {/*
+          The one surprising thing about the allow-list, said before it bites.
+
+          Loopback is accepted while a board has never been served live, so a
+          founder can test before deploying — and refused afterwards, because
+          an `Origin: http://localhost` header is otherwise a way for anything
+          that is not a browser to skip the list entirely. That transition is
+          invisible: local requests simply start returning 403 one day.
+
+          Shown only in the window where it is true and not yet explained, and
+          not at all once `localhost` is listed, which is the fix it suggests.
+        */}
+        {allowedDomains.length > 0 && !seen && !allowsLoopback && (
+          <Banner tone="state" icon="info">
+            While you set this up, the widget also loads from localhost. That stops once
+            {" "}{boardName} has been seen on a real site — add <code>localhost</code> under
+            Allowed domains if you want to keep developing against this board after it
+            goes live.
           </Banner>
         )}
       </div>

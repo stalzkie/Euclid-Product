@@ -11,6 +11,7 @@ import {
   result,
 } from "@/lib/mcp";
 import { authorizeKey, runTool } from "@/server/mcp";
+import { boardLimit } from "@/server/limits";
 
 /**
  * MCP endpoint, so a coding agent can read the board and mark work shipped
@@ -42,6 +43,22 @@ export async function POST(request: NextRequest) {
 
   const holder = await authorizeKey(request.headers.get("authorization"));
   if (!holder) return unauthorized();
+
+  /*
+    Per key, not per board, so one agent looping does not lock out another
+    agent on the same board — and so revoking the noisy key is a real remedy.
+
+    Sixty a minute is above anything an agent does while a human waits on it,
+    and below what a loop does. Counted once per HTTP request rather than per
+    JSON-RPC message in the batch: the batch is the thing a caller controls,
+    and charging per message would let `tools/list` cost the same as a write.
+  */
+  if (!(await boardLimit(holder.boardId, "mcp", holder.keyId, 60, "1 minute"))) {
+    return NextResponse.json(
+      { error: "Too many requests. Slow down and try again shortly." },
+      { status: 429, headers: { "retry-after": "60" } },
+    );
+  }
 
   let body: unknown;
   try {

@@ -38,12 +38,6 @@ export default async function OnboardingInstallPage() {
 
   if (!board) redirect("/onboarding/app");
 
-  // Has any post or vote come through yet? That is the honest install signal.
-  const { count: posts } = await db
-    .from("posts")
-    .select("id", { count: "exact", head: true })
-    .eq("board_id", board.id);
-
   return (
     <InstallStep
       boardPublicId={board.public_id}
@@ -53,7 +47,10 @@ export default async function OnboardingInstallPage() {
       identityMode={board.identity_mode}
       allowedDomains={board.allowed_domains}
       stack={(profile?.stack as StackItem[] | null) ?? []}
-      installed={(posts ?? 0) > 0}
+      // Set the first time the widget is served to a page that is not ours.
+      // A post is not the signal: it needs a user to turn up as well as an
+      // install, and this step is waiting on the install alone.
+      installed={board.installed_at !== null}
     />
   );
 }

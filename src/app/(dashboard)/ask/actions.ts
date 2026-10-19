@@ -7,7 +7,8 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
 import { askEuclid } from "@/lib/ai/assistant";
 import { AiUnavailableError, explainAiError } from "@/lib/ai/client";
-import { PLANS, hasChatAllowance, spendAllowance } from "@/lib/plans";
+import { PLANS, hasChatAllowance } from "@/lib/plans";
+import { RATE_LIMITED, withinLimit } from "@/server/limits";
 import type { ChatMessage } from "@/lib/types";
 
 /** Ask Euclid. One credit per question; answers always cite their posts. */
@@ -28,6 +29,14 @@ export async function ask(input: z.infer<typeof Ask>): Promise<AskResponse> {
   const ctx = await requireFounder();
   const db = await supabaseServer();
   const plan = PLANS[ctx.workspace.plan];
+
+  // Ahead of the plan and allowance checks for the reason given on the Build
+  // Prompt path: it is the cheapest refusal and the one that bounds how many
+  // simultaneous questions can pass a check none of them has been counted
+  // against yet. It matters more here — a question is four to seven credits.
+  if (!(await withinLimit(ctx.workspace.id, "ask", ctx.userId))) {
+    return { ok: false, error: RATE_LIMITED };
+  }
 
   if (!plan.chatAssistant) {
     return {
@@ -115,22 +124,36 @@ export async function ask(input: z.infer<typeof Ask>): Promise<AskResponse> {
   // One credit per step the model took, with a floor of one, so a cheap
   // question costs less than an expensive one.
   const cost = Math.max(1, answer.steps.length);
-  // The monthly allowance first, a purchased balance only once it is gone.
-  // A question costing more credits than remain is allowed to finish: it is
-  // already answered by the time this runs, and billing someone by killing an
-  // answer they are reading would be the wrong trade.
-  const spent = spendAllowance(
-    {
-      used: ctx.workspace.chat_credits_used,
-      limit: plan.chatCredits,
-      extra: extraCredits,
-    },
-    cost,
-  );
-  await db
-    .from("workspaces")
-    .update({ chat_credits_used: spent.used, extra_chat_credits: spent.extra })
-    .eq("id", ctx.workspace.id);
+
+  /*
+    The monthly allowance first, a purchased balance only once it is gone. A
+    question costing more credits than remain is allowed to finish: it is
+    already answered by the time this runs, and billing someone by killing an
+    answer they are reading would be the wrong trade. `spend_allowance` keeps
+    that floor.
+
+    Through the function rather than a read-compute-write from here, for the
+    reason in 0022_atomic_allowance.sql: this call site wrote an absolute
+    value derived from a snapshot taken when the request started, so parallel
+    questions each overwrote the others' increment and cost nothing. It
+    mattered more here than on Build Prompts, because a question is four to
+    seven credits rather than one.
+  */
+  const { data: spent, error: spendError } = await db
+    .rpc("spend_allowance", {
+      p_workspace: ctx.workspace.id,
+      p_kind: "credits",
+      p_cost: cost,
+      p_limit: plan.chatCredits,
+    })
+    .maybeSingle<{ used: number; extra: number }>();
+
+  // Swallowed for the same reason as on the Build Prompt path: the answer is
+  // saved and about to be rendered, and failing the request over an
+  // accounting error would lose it.
+  if (spendError) {
+    console.error(`[ask] could not meter spend for ${ctx.workspace.id}: ${spendError.message}`);
+  }
 
   revalidatePath("/ask");
 
@@ -138,7 +161,13 @@ export async function ask(input: z.infer<typeof Ask>): Promise<AskResponse> {
     ok: true,
     threadId: threadId as string,
     message: saved as ChatMessage,
-    creditsLeft: Math.max(0, plan.chatCredits - (ctx.workspace.chat_credits_used + cost)),
+    // What the spend wrote, for the reason given on the Build Prompt path:
+    // the opening snapshot plus the cost is wrong whenever two questions
+    // overlap, and here the cost is four to seven rather than one.
+    creditsLeft: Math.max(
+      0,
+      plan.chatCredits - (spent?.used ?? ctx.workspace.chat_credits_used + cost),
+    ),
   };
 }
 

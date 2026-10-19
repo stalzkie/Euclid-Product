@@ -2,10 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   VISITOR_COOKIE,
   getPublicBoard,
+  noteWidgetServed,
   originAllowed,
   readBoardView,
 } from "@/server/public-board";
 import { cors, preflight } from "../cors";
+import { appOrigin } from "@/lib/origin";
+import { requestIpBucket } from "@/server/ip";
 
 /**
  * The widget's one read: design config, posts, changelog and who the viewer
@@ -33,6 +36,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // After the allow-list, so a request this board would have refused cannot
+  // mark it installed. Awaited rather than fired off, because a serverless
+  // function is free to stop executing the moment the response is returned.
+  await noteWidgetServed(board, origin, new URL(await appOrigin()).host);
+
   const { viewer, posts, changelog } = await readBoardView({
     board,
     cookieKey: request.cookies.get(VISITOR_COOKIE)?.value ?? null,
@@ -40,6 +48,7 @@ export async function GET(request: NextRequest) {
     email: null,
     limit: 60,
     changelog: board.design.showChangelog,
+    ipKey: requestIpBucket(request.headers),
   });
 
   const response = cors(

@@ -177,31 +177,38 @@ export async function referralState(): Promise<
     return { ok: false as const, error: error?.message ?? "Could not create a code." };
   }
 
-  const [{ count: signups }, { data: rows }] = await Promise.all([
-    db
-      .from("workspaces")
-      .select("id", { count: "exact", head: true })
-      .eq("referred_by", code),
-    db
-      .from("referral_commissions")
-      .select("quantity,reversed_at")
-      .eq("referrer_id", ctx.workspace.id),
-  ]);
+  /*
+    Both numbers come from a definer, because one of them cannot be read any
+    other way.
 
-  // Reversed rows are kept in the ledger and excluded from the total, so the
-  // number shown is what the founder actually has rather than what they were
-  // once promised.
-  const earned = (rows ?? [])
-    .filter((row) => !row.reversed_at)
-    .reduce((sum, row) => sum + (row.quantity as number), 0);
+    Counting referred workspaces from here used to be
+    `from("workspaces").eq("referred_by", code)`, which always returned 0:
+    `workspaces_read` is `is_member(id)`, so that query sees only the
+    founder's own row, whose `referred_by` names whoever referred *them*. See
+    0021_referral_stats.sql.
+
+    Reading the ledger through RLS did work — its policy is
+    `is_member(referrer_id)` — but it is in the same function now so the two
+    numbers are one round trip and one place.
+  */
+  const { data: stats, error: statsError } = await db
+    .rpc("referral_stats", { p_workspace: ctx.workspace.id })
+    .maybeSingle<{ signups: number; earned: number }>();
+
+  if (statsError) {
+    return { ok: false as const, error: statsError.message };
+  }
 
   return {
     ok: true as const,
     state: {
       code,
       link: referralLink(await appOrigin(), code),
-      signups: signups ?? 0,
-      earned,
+      // A workspace that has never referred anyone returns a row of zeroes
+      // rather than no row, but defaulting costs nothing and keeps a missing
+      // row from rendering as "undefined signups".
+      signups: stats?.signups ?? 0,
+      earned: stats?.earned ?? 0,
     },
   };
 }

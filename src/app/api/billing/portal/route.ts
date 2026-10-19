@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFounder } from "@/server/context";
 import { polar } from "@/server/billing";
 import { billingEnabled } from "@/lib/polar";
+import { RATE_LIMITED, withinLimit } from "@/server/limits";
 
 /**
  * Send the founder to Polar's customer portal.
@@ -21,6 +22,13 @@ export async function GET() {
   }
 
   const ctx = await requireFounder();
+
+  // A Polar API call on our organisation token, same as checkout and top-up,
+  // so it shares their ceiling.
+  if (!(await withinLimit(ctx.workspace.id, "billing", ctx.userId))) {
+    return NextResponse.json({ error: RATE_LIMITED }, { status: 429 });
+  }
+
   const customerId = ctx.workspace.polar_customer_id;
   if (!customerId) {
     return NextResponse.json(

@@ -5,6 +5,7 @@ import { polar } from "@/server/billing";
 import { billingEnabled, topupById, topupProductId } from "@/lib/polar";
 import { PLANS } from "@/lib/plans";
 import { appOrigin } from "@/lib/origin";
+import { RATE_LIMITED, withinLimit } from "@/server/limits";
 
 /**
  * Buy a top-up pack: a one-time order that extends an allowance without
@@ -29,6 +30,12 @@ export async function GET(request: NextRequest) {
   }
 
   const ctx = await requireFounder();
+
+  // Each of these is a Polar API call on our organisation token. The ceiling
+  // is shared across the billing routes because they share that resource.
+  if (!(await withinLimit(ctx.workspace.id, "billing", ctx.userId))) {
+    return NextResponse.json({ error: RATE_LIMITED }, { status: 429 });
+  }
   const parsed = Params.safeParse({ pack: request.nextUrl.searchParams.get("pack") });
   if (!parsed.success) {
     return NextResponse.json({ error: "Pick a top-up pack." }, { status: 400 });

@@ -5,6 +5,7 @@ import { getPublicBoard, originAllowed } from "@/server/public-board";
 import { EMAIL_COOKIE, newMagicToken } from "@/server/identity";
 import { cors, preflight } from "../cors";
 import { drainAfterResponse } from "@/server/dispatch";
+import { requestIpBucket } from "@/server/ip";
 
 /**
  * Email identity for end users. Requesting a link queues an email; following
@@ -52,6 +53,36 @@ export async function POST(request: NextRequest) {
     return cors(
       NextResponse.json({ error: "A link is already on its way. Check your inbox." }, { status: 429 }),
     );
+  }
+
+  /*
+    And a ceiling per network, which the per-email limit cannot provide.
+
+    Three per address stops someone being mail-bombed, and stops nothing else:
+    a script with a list of ten thousand addresses asks once for each, passes
+    every check, and sends ten thousand emails from our domain. The damage
+    there is not to any one recipient, it is to the sender reputation the
+    magic links themselves depend on.
+
+    Per hour rather than fifteen minutes, because this is guarding a slow and
+    expensive resource rather than one person's inbox.
+  */
+  const ipKey = requestIpBucket(request.headers);
+  if (ipKey) {
+    const { data: ipAllowed } = await db.rpc("check_rate_limit", {
+      p_board: board.id,
+      p_bucket: "magic_ip",
+      p_actor: ipKey,
+      p_max: 10,
+      p_window: "1 hour",
+    });
+    // Same wording as above on purpose: which of the two limits was hit is
+    // not something the caller needs to learn.
+    if (ipAllowed === false) {
+      return cors(
+        NextResponse.json({ error: "A link is already on its way. Check your inbox." }, { status: 429 }),
+      );
+    }
   }
 
   const token = newMagicToken();

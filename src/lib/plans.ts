@@ -149,8 +149,21 @@ export function hasAllowance(a: Allowance): boolean {
  * month and the purchased balance does not, so spending the perishable one
  * first is what the founder would choose if asked.
  *
- * Returns the new values rather than mutating, so the caller writes both
- * columns in one update and this stays testable without a database.
+ * **Nothing calls this in production any more. It is the reference
+ * implementation, and that is the point.**
+ *
+ * The spend moved into `spend_allowance` in `0022_atomic_allowance.sql`,
+ * because computing it here meant reading `prompts_used` at the start of a
+ * request and writing an absolute value back at the end — so concurrent
+ * generations overwrote each other's increments and were never counted. The
+ * arithmetic itself was always right; only its distance from the row was
+ * wrong.
+ *
+ * It stays because the unit suite has no way to run plpgsql, so
+ * `tests/unit/allowance.test.ts` is the only executable statement of what the
+ * SQL is supposed to do — including the floor on `extra` and the
+ * plan-before-purchased ordering. Change one of the two and change the other,
+ * or the tests are asserting about a function nobody runs.
  */
 export function spendAllowance(
   a: Allowance,

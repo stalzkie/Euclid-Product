@@ -5,7 +5,7 @@ import { z } from "zod";
 import { uuid } from "@/lib/validation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireFounder } from "@/server/context";
-import { PLANS, hasPromptAllowance, spendAllowance } from "@/lib/plans";
+import { PLANS, hasPromptAllowance } from "@/lib/plans";
 import {
   assemblePrompt,
   generateDraft,
@@ -22,6 +22,7 @@ import {
   type PromptTarget,
 } from "@/lib/types";
 import { getRepoSnapshot } from "@/server/repo-context";
+import { RATE_LIMITED, withinLimit } from "@/server/limits";
 
 /**
  * Build Prompt generation and refinement. Every call checks the workspace's
@@ -65,6 +66,15 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
   const ctx = await requireFounder();
   const db = await supabaseServer();
   const plan = PLANS[ctx.workspace.plan];
+
+  // Before the allowance check, because this is the cheaper of the two to
+  // refuse and the one that bounds a stampede. The allowance is read from a
+  // snapshot taken when the request started, so twenty simultaneous requests
+  // all see the same remaining balance and all pass; this caps how many of
+  // them get as far as a model call. See 0023_rate_limits.sql.
+  if (!(await withinLimit(ctx.workspace.id, "prompt", ctx.userId))) {
+    return { ok: false, error: RATE_LIMITED };
+  }
 
   const extraPrompts = ctx.workspace.extra_prompts ?? 0;
   if (!hasPromptAllowance(ctx.workspace.plan, ctx.workspace.prompts_used, extraPrompts)) {
@@ -156,18 +166,36 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
     ]);
   }
 
-  // Meter the spend: the monthly allowance first, a purchased balance only
-  // once that is gone. Both columns are written together, because which one
-  // moved is decided by `spendAllowance` and not by this call site.
-  const spent = spendAllowance({
-    used: ctx.workspace.prompts_used,
-    limit: plan.buildPrompts,
-    extra: extraPrompts,
-  });
-  await db
-    .from("workspaces")
-    .update({ prompts_used: spent.used, extra_prompts: spent.extra })
-    .eq("id", ctx.workspace.id);
+  /*
+    Meter the spend: the monthly allowance first, a purchased balance only
+    once that is gone.
+
+    Through `spend_allowance` rather than a read-compute-write from here. The
+    old version passed `ctx.workspace.prompts_used` — read when the request
+    started — into `spendAllowance` and wrote the result back as an absolute
+    value, so twenty concurrent generations all read 0 and all wrote 1.
+    Twenty model calls, one counted. The function locks the row and does the
+    same arithmetic where the current value is visible; see
+    0022_atomic_allowance.sql.
+
+    The limit is still passed in, so PLANS stays the only place pricing lives.
+  */
+  const { data: spent, error: spendError } = await db
+    .rpc("spend_allowance", {
+      p_workspace: ctx.workspace.id,
+      p_kind: "prompts",
+      p_cost: 1,
+      p_limit: plan.buildPrompts,
+    })
+    .maybeSingle<{ used: number; extra: number }>();
+
+  // The prompt is already generated and saved at this point, so a failure to
+  // meter it is logged and swallowed rather than failing the request: handing
+  // back an error would make the founder think the generation itself failed
+  // and generate again, which costs a second call to fix an accounting slip.
+  if (spendError) {
+    console.error(`[prompts] could not meter spend for ${ctx.workspace.id}: ${spendError.message}`);
+  }
 
   await db.from("activity").insert({
     workspace_id: ctx.workspace.id,
@@ -186,7 +214,15 @@ export async function generateBuildPrompt(args: GenerateArgs): Promise<GenerateR
   return {
     ok: true,
     prompt: saved as BuildPrompt,
-    promptsLeft: Math.max(0, plan.buildPrompts - (ctx.workspace.prompts_used + 1)),
+    // From what the spend actually wrote, not from the request's opening
+    // snapshot plus one. Two generations in flight at once used to both report
+    // the same number left, and the one that finished second was wrong.
+    // Falls back to the old arithmetic if the metering call itself failed,
+    // since a missing number renders worse than a slightly stale one.
+    promptsLeft: Math.max(
+      0,
+      plan.buildPrompts - (spent?.used ?? ctx.workspace.prompts_used + 1),
+    ),
   };
 }
 

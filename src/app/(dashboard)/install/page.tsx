@@ -33,16 +33,12 @@ export default async function InstallPage() {
   // The integrations config column holds webhook URLs and API tokens. It is
   // read here and reduced to a redacted label; the raw value never reaches
   // the browser.
-  const [{ data: rows }, apiKeys, { count: posts }] = await Promise.all([
+  const [{ data: rows }, apiKeys] = await Promise.all([
     db
       .from("integrations")
       .select("kind,config,events,active,last_error,last_delivered_at")
       .eq("board_id", ctx.board.id),
     listApiKeys(ctx.board.id),
-    db
-      .from("posts")
-      .select("id", { count: "exact", head: true })
-      .eq("board_id", ctx.board.id),
   ]);
 
   const integrations: IntegrationSummary[] = (rows ?? []).map((row) => {
@@ -77,7 +73,10 @@ export default async function InstallPage() {
         }}
         origin={await appOrigin()}
         stack={ctx.profile?.stack ?? []}
-        installed={(posts ?? 0) > 0}
+        // Whether the widget has actually been served, not whether anyone
+        // has posted. A founder who installs it and waits for their users to
+        // say something is installed, and used to be shown as not.
+        installed={ctx.board.installed_at !== null}
         jwtAllowed={plan.jwtIdentity}
         customDomainAllowed={plan.customDomain}
         integrations={integrations}

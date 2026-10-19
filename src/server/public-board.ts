@@ -3,6 +3,7 @@ import { enqueueIntegrationEvent } from "@/server/integrations";
 import { appOrigin } from "@/lib/origin";
 import { supabaseAdmin, hasServiceRole } from "@/lib/supabase/server";
 import { mergeDesign } from "@/lib/design-presets";
+import { boardLimit } from "@/server/limits";
 import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
 import { scanForInjection } from "@/lib/ai/safety";
 import { DUPLICATE_SUGGESTION, SIMILAR_NUDGE } from "@/lib/ai/thresholds";
@@ -39,6 +40,8 @@ export interface PublicBoard {
   requireApproval: boolean;
   showBadge: boolean;
   categories: string[];
+  /** First time the widget was served to a page that is not one of ours. */
+  installedAt: string | null;
 }
 
 export async function getPublicBoard(publicId: string): Promise<PublicBoard | null> {
@@ -71,12 +74,126 @@ export async function getPublicBoard(publicId: string): Promise<PublicBoard | nu
     requireApproval: data.require_approval,
     showBadge: data.show_badge,
     categories: data.categories,
+    installedAt: data.installed_at ?? null,
   };
+}
+
+/**
+ * Whether one board read should be treated as the widget going live.
+ *
+ * Pure, and kept separate from the write below, because this is the part with
+ * the judgement in it.
+ *
+ * Three things it refuses to count, because the question is "is this live on
+ * the founder's site" and not "has this endpoint been hit":
+ *
+ *   - a board already stamped, which is almost every call. The early return is
+ *     what keeps the write off the hot path: one per board, ever.
+ *   - a request with no Origin or Referer. A browser on a real page sends one;
+ *     something without one is a script, and a script is not an install.
+ *   - our own pages. The founder previewing the hosted board at /b/:id, or the
+ *     designer's live preview, would otherwise mark the widget installed on a
+ *     site it has never been near — the indicator would turn green while they
+ *     were still reading the snippet.
+ *   - loopback. See below; this one is load-bearing for `originAllowed`.
+ *
+ * "Installed" means **live on a real site**, not "worked once on the founder's
+ * laptop", and the two are worth separating because `originAllowed` keys off
+ * this column. It lets loopback past a non-empty allow-list only while the
+ * board has never been served live — which is the whole point, a founder
+ * testing before they deploy. If a localhost request also *stamped* the
+ * board, the first such request would close the door on the second: one
+ * successful local test, then 403 for the rest of the afternoon.
+ *
+ * So the two have to agree on what loopback means, and "still setting up" is
+ * the reading that makes both correct. The cost is that the indicator stays
+ * grey while a founder tests locally and turns green when they deploy, which
+ * is arguably what the install screen should be confirming anyway.
+ *
+ * Deliberately NOT `isOwnHost`, which answers a different question: it decides
+ * whether a request arrived on a custom domain, so it folds loopback in with
+ * our own hostnames and treats every other subdomain as somebody else's. The
+ * overlap here is a coincidence of this particular pair of rules, not a shared
+ * meaning, and tying them together would couple the install signal to custom
+ * domain routing.
+ *
+ * A preview deployment of Euclid itself still counts as an install, which is a
+ * false positive worth accepting: the only person who ever opens one is us.
+ */
+export function countsAsInstall(
+  installedAt: string | null,
+  origin: string | null,
+  appHost: string,
+): boolean {
+  // Already stamped. Almost every call lands here, which is what keeps the
+  // write off the hot path: one per board, ever.
+  if (installedAt) return false;
+
+  // A browser on a real page sends one of these; something without one is a
+  // script, and a script is not an install.
+  if (!origin) return false;
+
+  let host: string;
+  try {
+    host = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  // Loopback is a founder still setting up, not a live install. `originAllowed`
+  // depends on this: stamping here would revoke the loopback allowance that
+  // let the request through in the first place.
+  if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost")) {
+    return false;
+  }
+
+  const own = appHost.split(":")[0].toLowerCase();
+  return host !== own && host !== `www.${own}` && `www.${host}` !== own;
+}
+
+/**
+ * Stamp the first time this board's widget was served to someone else's page.
+ *
+ * Called from the public board read, the widget's one round trip and so the
+ * only moment the server hears from an install at all.
+ *
+ * Failures are swallowed. This is a progress indicator, and a board read must
+ * not fail because a nicety could not be recorded.
+ */
+export async function noteWidgetServed(
+  board: PublicBoard,
+  origin: string | null,
+  appHost: string,
+): Promise<void> {
+  if (!countsAsInstall(board.installedAt, origin, appHost)) return;
+
+  // `is("installed_at", null)` rather than a plain update, so two first loads
+  // racing each other keep the earlier stamp instead of the later one.
+  const { error } = await supabaseAdmin()
+    .from("boards")
+    .update({ installed_at: new Date().toISOString() })
+    .eq("id", board.id)
+    .is("installed_at", null);
+
+  if (error) console.error(`[install] could not stamp board ${board.id}: ${error.message}`);
 }
 
 /**
  * Domain allow-list check. An empty list means the founder has not locked the
  * board down yet, which is allowed but flagged in the dashboard.
+ *
+ * **This is not an authentication boundary and must never be relied on as
+ * one.** `Origin` and `Referer` are set by browsers; anything that is not a
+ * browser sets them to whatever it likes, so a script that wants to post to
+ * this board simply sends the founder's own domain and passes. What the list
+ * actually buys is that a *browser* on someone else's site cannot embed the
+ * widget and write to the board — real, and worth having, and much narrower
+ * than it looks.
+ *
+ * The controls that bound a determined caller are the ones that do not depend
+ * on a header it controls: the rate limits in `limitBoth`, the spam score and
+ * approval queue in `submitPost`, and the identity mode. Tightening this
+ * function helps; it does not move the board behind a door.
  */
 export function originAllowed(board: PublicBoard, origin: string | null): boolean {
   if (board.allowedDomains.length === 0) return true;
@@ -89,15 +206,37 @@ export function originAllowed(board: PublicBoard, origin: string | null): boolea
     return false;
   }
 
-  // localhost always passes, so a founder can test before deploying.
-  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost")) {
+  if (
+    board.allowedDomains.some((allowed) => {
+      const clean = allowed.toLowerCase().replace(/^\*\./, "");
+      return host === clean || host.endsWith(`.${clean}`);
+    })
+  ) {
     return true;
   }
 
-  return board.allowedDomains.some((allowed) => {
-    const clean = allowed.toLowerCase().replace(/^\*\./, "");
-    return host === clean || host.endsWith(`.${clean}`);
-  });
+  /*
+    Loopback, but only until the board has been served to a real page.
+
+    This used to be an unconditional `return true` placed *before* the
+    allow-list, which meant one header — `Origin: http://localhost` — opted any
+    caller out of the list entirely, from anywhere. The board's public id is in
+    the snippet on the founder's own site, so it is not a secret, and that made
+    the allow-list trivially skippable by anything that was not a browser.
+
+    The stated reason for it was "so a founder can test before deploying", and
+    `installed_at` is now a record of exactly when that stops being true. A
+    board that has never been served live is still being set up, and there is
+    nothing on it to reach; once the widget has been seen on a real page,
+    loopback is no longer a convenience, it is the easiest way in.
+
+    A founder who genuinely develops against a live board after launch puts
+    `localhost` in their allow-list, which the check above honours — saying so
+    explicitly is better than a permanent hole that nobody opted into.
+  */
+  const loopback =
+    host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
+  return loopback && board.installedAt === null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -180,6 +319,16 @@ export interface Viewer {
   /** Set when a new anonymous visitor key had to be minted. */
   newCookie?: string;
   /**
+   * The request's rate-limit bucket for its network, or null when no proxy
+   * header offered a usable address.
+   *
+   * Request provenance, not identity — it says where this call came from, not
+   * who made it. Nothing may join on it, store it on a row, or show it to a
+   * founder: it exists so a limit survives someone clearing their cookies,
+   * and its one legitimate reader is `limitBoth` below.
+   */
+  ipKey?: string | null;
+  /**
    * Why a signed token was not honoured. A board on JWT identity whose tokens
    * are being rejected looks exactly like a board with no signed-in users, so
    * the reason is surfaced rather than swallowed — otherwise a broken
@@ -251,12 +400,13 @@ export async function readBoardView(args: {
   email: string | null;
   limit: number;
   changelog?: boolean;
+  ipKey?: string | null;
 }): Promise<{ viewer: Viewer | null; posts: WidgetPost[]; changelog: WidgetChangelog[] }> {
   const { board, cookieKey, token, email, limit } = args;
   const wantsChangelog = args.changelog ?? true;
 
   const [viewer, posts, voted, changelog] = await Promise.all([
-    resolveViewer({ board, cookieKey, token, email }),
+    resolveViewer({ board, cookieKey, token, email, ipKey: args.ipKey }),
     listPublicPosts(board.id, null, { limit }),
     listViewerVotes(board.id, externalKeyFor(board, { cookieKey, token, email })),
     wantsChangelog ? listPublicChangelog(board.id) : Promise.resolve([]),
@@ -274,6 +424,21 @@ export async function readBoardView(args: {
  * creating one if needed. The three identity levels all land here.
  */
 export async function resolveViewer(args: {
+  board: PublicBoard;
+  cookieKey: string | null;
+  token: string | null;
+  email: string | null;
+  ipKey?: string | null;
+}): Promise<Viewer | null> {
+  // Attached here rather than at each of the identify paths' four return
+  // sites. The bucket has nothing to do with how someone was identified, and
+  // threading it through every branch is how one branch quietly ends up
+  // without it and loses its IP limit.
+  const viewer = await identifyViewer(args);
+  return viewer && { ...viewer, ipKey: args.ipKey ?? null };
+}
+
+async function identifyViewer(args: {
   board: PublicBoard;
   cookieKey: string | null;
   token: string | null;
@@ -412,7 +577,7 @@ export async function toggleVote(
 ): Promise<WriteResult<{ voted: boolean; votes: number }>> {
   const db = supabaseAdmin();
 
-  const allowed = await rateLimit(board.id, "vote", viewer.id, 60, "1 hour");
+  const allowed = await limitBoth(board.id, "vote", viewer, 60, 300, "1 hour");
   if (!allowed) {
     return { ok: false, error: "Too many votes too quickly. Try again shortly.", status: 429 };
   }
@@ -496,7 +661,7 @@ export async function submitPost(
     return { ok: false, error: "Keep the title under 140 characters.", status: 400 };
   }
 
-  const allowed = await rateLimit(board.id, "post", viewer.id, 5, "1 hour");
+  const allowed = await limitBoth(board.id, "post", viewer, 5, 20, "1 hour");
   if (!allowed) {
     return {
       ok: false,
@@ -618,7 +783,7 @@ export async function submitComment(
     return { ok: false, error: "Write something first.", status: 400 };
   }
 
-  const allowed = await rateLimit(board.id, "comment", viewer.id, 20, "1 hour");
+  const allowed = await limitBoth(board.id, "comment", viewer, 20, 80, "1 hour");
   if (!allowed) {
     return { ok: false, error: "Slow down a moment, then try again.", status: 429 };
   }
@@ -773,22 +938,34 @@ const FILLER = new Set([
   "feature", "request", "idea", "support", "option", "thing", "stuff",
 ]);
 
-async function rateLimit(
+/**
+ * Both keys, checked together: the visitor, and the network they came from.
+ *
+ * The per-viewer budget is the real one and the per-IP budget is deliberately
+ * several times larger, because an address is shared in ways a cookie is not —
+ * an office, a university, a phone network behind CGNAT. Setting them equal
+ * would mean the second person on an office wifi is rate-limited by the first.
+ *
+ * `ipKey` is null in local development and anywhere no proxy sets an address
+ * header. That skips the second check rather than failing: an unknown address
+ * is not evidence of abuse, and one shared "unknown" bucket would limit
+ * strangers against each other.
+ *
+ * Checked after the viewer budget so the cheaper, more specific limit answers
+ * first, and so a visitor who is over their own limit does not also burn a
+ * slot in the shared one.
+ */
+async function limitBoth(
   boardId: string,
   bucket: string,
-  actor: string,
-  max: number,
+  viewer: Viewer,
+  perViewer: number,
+  perIp: number,
   window: string,
 ): Promise<boolean> {
-  const db = supabaseAdmin();
-  const { data, error } = await db.rpc("check_rate_limit", {
-    p_board: boardId,
-    p_bucket: bucket,
-    p_actor: actor,
-    p_max: max,
-    p_window: window,
-  });
-  // A failing limiter must not block a legitimate post.
-  if (error) return true;
-  return data !== false;
+  if (!(await boardLimit(boardId, bucket, viewer.id, perViewer, window))) return false;
+  if (!viewer.ipKey) return true;
+  return boardLimit(boardId, `${bucket}_ip`, viewer.ipKey, perIp, window);
 }
+
+

@@ -107,6 +107,12 @@ export interface Workspace {
   student_email: string | null;
   /** When it was granted. Expiry is computed from this, not stored. */
   student_verified_at: string | null;
+  /**
+   * When the founder closed the setup checklist. Null means it is still
+   * showing — though it also hides itself once every step is done, which is
+   * derived rather than recorded here.
+   */
+  setup_dismissed_at: string | null;
 }
 
 export interface StackItem {
@@ -142,6 +148,11 @@ export interface Board {
   custom_domain_verified_at: string | null;
   design: BoardDesign;
   categories: string[];
+  /**
+   * First time the widget was served to a page that is not one of ours. Null
+   * means it has never been seen live. Written once and never cleared.
+   */
+  installed_at: string | null;
   created_at: string;
 }
 

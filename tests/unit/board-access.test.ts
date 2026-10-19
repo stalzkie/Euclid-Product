@@ -9,7 +9,7 @@ import { uuid } from "@/lib/validation";
  * merely *contains* the allowed one, and a subdomain that legitimately should.
  */
 
-function board(allowedDomains: string[]): PublicBoard {
+function board(allowedDomains: string[], installedAt: string | null = null): PublicBoard {
   return {
     id: "board-1",
     publicId: "brd_test",
@@ -23,6 +23,7 @@ function board(allowedDomains: string[]): PublicBoard {
     anonVoteLimit: 10,
     requireApproval: false,
     showBadge: false,
+    installedAt,
     categories: ["Feature"],
   };
 }
@@ -51,9 +52,35 @@ describe("originAllowed", () => {
     );
   });
 
-  it("allows localhost so a founder can test before deploying", () => {
+  it("allows loopback while the board has never been served live", () => {
+    // "So a founder can test before deploying" — the window this exists for.
     expect(originAllowed(board(["driftnote.app"]), "http://localhost:3000")).toBe(true);
     expect(originAllowed(board(["driftnote.app"]), "http://127.0.0.1:5173")).toBe(true);
+    expect(originAllowed(board(["driftnote.app"]), "http://[::1]:8080")).toBe(true);
+  });
+
+  it("refuses loopback once the board is live", () => {
+    /*
+      The bypass this closes: `Origin: http://localhost` used to return true
+      before the allow-list was even consulted, so one header opted any caller
+      out of it entirely. A board's public id sits in the snippet on the
+      founder's own site, so it is not a secret.
+    */
+    const live = board(["driftnote.app"], "2026-07-31T09:31:54Z");
+    expect(originAllowed(live, "http://localhost:3000")).toBe(false);
+    expect(originAllowed(live, "http://127.0.0.1:5173")).toBe(false);
+  });
+
+  it("still allows loopback on a live board when the founder listed it", () => {
+    // Ongoing local development against a live board is opted into, not
+    // granted forever to everybody by default.
+    const live = board(["driftnote.app", "localhost"], "2026-07-31T09:31:54Z");
+    expect(originAllowed(live, "http://localhost:3000")).toBe(true);
+  });
+
+  it("still refuses a stranger on a live board", () => {
+    const live = board(["driftnote.app"], "2026-07-31T09:31:54Z");
+    expect(originAllowed(live, "https://evil.example")).toBe(false);
   });
 
   it("allows anything when the founder has not locked the board down", () => {
