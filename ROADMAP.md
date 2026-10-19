@@ -356,6 +356,7 @@ From the production review of 2026-10-19. None of these are in flight.
       and our own host when `TEST_APP_URL` points at a deployment. Both are
       already refused by `countsAsInstall`. There is no third configuration,
       because the host page has nowhere else to be served from.
-- [ ] **`/api/board/installed` is fixed but the `load` bucket is still dead.**
-      Nothing writes it; the route no longer reads it. Nothing to do unless
-      something else wants that signal.
+- [x] **The `load` bucket is gone, confirmed by looking.** A search across
+      `src/` and every migration finds one reference: a comment in
+      `/api/board/installed` recording why it was dropped. No live code, no
+      config entry, no SQL. There was nothing left to remove.
