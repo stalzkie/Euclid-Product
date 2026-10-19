@@ -302,6 +302,7 @@ console.log("");
 for (const [env, label] of [
   ["POLAR_DISCOUNT_FIRST_PURCHASE", "launch promotion"],
   ["POLAR_DISCOUNT_STUDENT", "student rate"],
+  ["POLAR_DISCOUNT_INDIE3", "4-for-3 promotion"],
 ]) {
   const id = process.env[env];
   if (!id) {
@@ -323,6 +324,44 @@ for (const [env, label] of [
     }
     if (discount.organization_id && orgs.size === 1 && !orgs.has(discount.organization_id)) {
       fail(`${env} belongs to a different organisation than the products.`);
+    }
+
+    /**
+     * The 4-for-3 promotion is a shape, not just an id, and every part of
+     * that shape can be wrong while the id still resolves — which is the
+     * failure this whole script exists to catch.
+     *
+     * A `once` duration pays the founder one discounted month instead of
+     * four and nobody finds out until the second invoice. An unrestricted
+     * discount is one a Pro checkout could carry. And the redemption cap is
+     * the only thing bounding what the promotion can cost, so an uncapped
+     * one is a standing liability rather than a launch offer.
+     */
+    if (env === "POLAR_DISCOUNT_INDIE3") {
+      const months = discount.durationInMonths ?? discount.duration_in_months;
+      if (discount.duration !== "repeating" || months !== 4) {
+        fail(
+          `${env} should be repeating over 4 months — the promise is four ` +
+            `months at 25% for the price of three. It is ` +
+            `"${discount.duration}"${months != null ? ` over ${months}` : ""}.`,
+        );
+      }
+      const products = discount.products ?? [];
+      const indie = process.env.POLAR_PRODUCT_INDIE_MONTHLY;
+      if (products.length !== 1 || (indie && products[0]?.id !== indie)) {
+        fail(
+          `${env} must be restricted to Indie Monthly alone, or it is a ` +
+            `discount some other checkout can carry. It lists ` +
+            `${products.length} product(s).`,
+        );
+      }
+      const cap = discount.maxRedemptions ?? discount.max_redemptions;
+      if (cap == null) {
+        note(
+          `${env} has no max_redemptions. The cap is the only thing bounding ` +
+            `what the promotion can cost.`,
+        );
+      }
     }
   } catch (err) {
     const status = err?.statusCode ?? "?";

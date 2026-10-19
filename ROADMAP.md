@@ -45,22 +45,52 @@ the subscription keeps renewing at $12 afterwards instead of ending.
 
 ### Left
 
-- [ ] **Create the Polar discount.** 25%, `duration: repeating`,
-      `duration_in_months: 4`, `products: [Indie Monthly]`, a
-      `max_redemptions` cap, no code. Set `POLAR_DISCOUNT_INDIE3`.
-- [ ] **Check whether the 7-day trial's $0 invoice eats a discounted month.**
-      If it does, use `duration_in_months: 5`. Nothing in Polar's docs answers
-      this; it is a 15-minute sandbox test and it changes what the founder
-      actually gets.
-- [ ] **Bernn: `POST /partners/promo-codes`.** Prompt for their agent was
-      written on 2026-10-19. Mirrors `/webhooks/revenuecat`: raw secret in the
-      `Authorization` header (**not** `Bearer`-prefixed — both sides must
-      agree), 503 while the token is unset, `count` capped at 200, audit
-      logged. Must return the `trial_days` it actually wrote.
+- [x] **Polar discount created, 2026-10-19.** `Launch 4-for-3`,
+      `35e92fad-7d90-41dc-93eb-05b08f77aab0` — 25%, `duration: repeating`,
+      `duration_in_months: 4`, products `[Euclid Indie - Monthly]`,
+      `max_redemptions: 50`, `max_redemptions_per_customer: 1`, no code.
+      Read back off the API rather than trusted from the dashboard toast.
+      `POLAR_DISCOUNT_INDIE3` set in `.env.local` and on Vercel production.
+
+      The cap is 50 because that is the size of the Bernn pool already minted,
+      so the two halves of the promise can never disagree: every discount that
+      can be redeemed has a Bernn code waiting behind it. Worst case the
+      promotion forgoes 50 x $3 x 4 = $600.
+
+- [x] **The trial does not eat a discounted month**, so 4 is right and 5 would
+      have overpaid by a month. Answered from Polar's source rather than by
+      spending anything, which is both cheaper and more certain than the
+      sandbox test this item budgeted for:
+
+      - `subscription/service.py:1148` — on a checkout **with** a trial,
+        `discount_applied_at` is deliberately left `None`. The comment is
+        explicit: "For non-trial checkouts with a discount, the discount is
+        applied immediately (the first payment at checkout includes the
+        discount)."
+      - At trial conversion (`:1318-1329`) `current_period_start` advances to
+        the trial-end date **first**, and only then does
+        `_clear_expired_discount` stamp
+        `discount_applied_at = current_period_start` — the start of the first
+        *paid* period.
+      - `Discount.is_repetition_expired` counts calendar months from there
+        (`end_at = discount_applied_at + relativedelta(months=n - 1)`).
+
+      So the anchor is the first paid invoice and the $0 trial invoice is not
+      one of the four. The meter clock is also left unarmed during a trial
+      (`initialize_meter_period(None if trial_end ...)`), so the meter-boundary
+      call at `:1620` cannot stamp it early either.
+- [x] **Bernn: `POST /partners/promo-codes`.** Prompt for their agent was
+      written on 2026-10-19, and the endpoint shipped the same day — see the
+      `BERNN_MINT_*` item below, where the chain was exercised end to end.
+      Mirrors `/webhooks/revenuecat`: raw secret in the `Authorization`
+      header (**not** `Bearer`-prefixed — both sides must agree), 503 while
+      the token is unset, `count` capped at 200, audit logged. Returns the
+      `trial_days` it actually wrote.
 - [ ] **Bernn: a test for `PromoCodesRepository`.** There is none today. The
       `.is("redeemed_by", null)` guard against two simultaneous redemptions of
       one code has never been exercised.
-- [ ] `BERNN_MINT_URL` and `BERNN_MINT_TOKEN` in `.env.local` and on Vercel.
+- [x] `BERNN_MINT_URL` and `BERNN_MINT_TOKEN` set in `.env.local` and on Vercel
+      production.
       Bernn's side is **done** as of 2026-10-19: `POST /partners/promo-codes`
       is implemented to the contract, caps a batch at `MAX_MINT_BATCH = 200`
       (the same number as Euclid's `MINT_CAP`, so a request Euclid builds can
@@ -120,15 +150,22 @@ body.
 
 ### Left
 
-- [ ] **Set the sender env vars.** `EMAIL_FROM` is still a bare `business@`
-      with no display name, which is a Promotions signal on its own.
-      `EMAIL_REPLY_TO` is unset; `EMAIL_SIGN_OFF` defaults to
-      "Stal from Euclid".
-- [ ] **Confirm it reaches Primary, not Promotions.** Only receiving it can
-      answer that, and the test send went to dstalingrad@gmail.com.
+- [x] **Sender env vars set, 2026-10-19**, in `.env.local` and on Vercel
+      production: `EMAIL_FROM=Stal from Euclid <business@euclidhq.com>`
+      (was a bare address, a Promotions signal on its own),
+      `EMAIL_REPLY_TO=business@euclidhq.com`, and `EMAIL_SIGN_OFF` pinned
+      explicitly to "Stal from Euclid" rather than left to the fallback, so
+      the sender's display name and the signature agree.
+
+      **Reply-To assumes `business@euclidhq.com` actually receives.** The
+      sign-off promises a reply, so if that address is send-only in Resend
+      this points replies into nothing — change it to an inbox that is read.
+- [x] **It lands in Primary, not Promotions.** Confirmed by the founder on
+      2026-10-19.
 - [ ] The other three emails — magic link, student verification, trial
       reminder — are still text-only. The magic link should stay that way.
 - [ ] SPF, DKIM and DMARC on the sending domain, per `EMAILS.md` §3.
+      **Deliberately deferred 2026-10-19** — mail reaches Primary without it.
 - [ ] Later: `GET /partners/promo-codes/status`. Bernn's `promo_codes` already
       carries `redeemed_by`, so it knows how many issued codes were actually
       used — the number that says whether the Bernn half is worth running.
@@ -248,8 +285,12 @@ will, and the reason to build them anyway is one place and one bill.
 
 ### Left
 
-- [ ] Set `ADMIN_EMAILS` in production. Until then `/admin` 404s for everyone,
-      which is the intended default.
+- [x] **`ADMIN_EMAILS` set, 2026-10-19** — `dstalingrad@gmail.com` and
+      `fantasy.grimdark@gmail.com`, in `.env.local` and on Vercel production.
+      Both founder accounts are allow-listed rather than only the active one,
+      because the gate matches on the session's email and signing in with the
+      other would 404 with nothing to explain why.
+      **Takes effect on the next deploy** — Vercel reads env at build time.
 - [ ] Panel 3 gains "redeemed" once Bernn exposes it — see section 1.
 
 ---
@@ -258,7 +299,7 @@ will, and the reason to build them anyway is one place and one bill.
 
 From the production review of 2026-10-19. None of these are in flight.
 
-- [ ] **`main` is ahead** and none of 2026-10-19's work is committed.
+- [x] **Committed and pushed.** `main` matches `origin/main`, tree clean.
 - [ ] **Integration outbox has never run end to end.**
       `enqueueIntegrationEvent` → `integration_outbox` →
       `deliverIntegrationEvents` is unexercised against a real endpoint; only
@@ -267,11 +308,18 @@ From the production review of 2026-10-19. None of these are in flight.
 - [ ] **`deliver_after` is computed on the app's clock** and compared against
       the database's. The PC's two-minute skew was corrected on 2026-10-19 so
       this is latent rather than active; `now() + interval` in SQL removes it.
-- [ ] **`README.md` is stale** — still says billing does not charge and that
-      the integrations are placeholders.
-- [ ] **`http://localhost:3000/**` is not in Supabase's redirect allow-list**,
-      so `generate_link` silently substitutes the production origin. This will
-      bite the e2e suite.
+- [x] **`README.md` refreshed** in `b009f9d` — billing charges, and the
+      integrations are described as wired up.
+- [x] **`http://localhost:3000/**` added to Supabase's redirect allow-list**,
+      2026-10-19, and **proved** rather than assumed: `generate_link` now
+      returns `redirect_to` unchanged for `/auth/land` and for
+      `/auth/land?probe=1`, neither of which the pre-existing exact
+      `/auth/callback` entry covers. The already-listed `/auth/callback` was
+      run as a control first, so a pass could not come from the probe simply
+      being wrong — which it was on the first attempt: the raw GoTrue admin
+      API takes `redirect_to` at the top level, and nesting it under `options`
+      (as the JS client does) sends no redirect at all and silently yields
+      the site URL.
 - [ ] **The e2e suite stamps `installed_at`** on any board it drives with a
       non-loopback Origin, because it runs against the production database.
 - [ ] **`/api/board/installed` is fixed but the `load` bucket is still dead.**

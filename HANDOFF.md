@@ -27,6 +27,24 @@ looking at live data rather than by reading code:
 - The promo's *grant* was idempotent and its *email* was not, so Polar's three
   deliveries sent three copies. Fixed in `0028`.
 
+**Configuration closed out the same day.** The promotion's Polar discount now
+exists — `Launch 4-for-3`, `35e92fad-7d90-41dc-93eb-05b08f77aab0`, 25%
+repeating over 4 months on Indie Monthly, capped at 50 redemptions and 1 per
+customer, codeless like the other two. `POLAR_DISCOUNT_INDIE3`, the three
+e-mail sender variables and `ADMIN_EMAILS` are set in `.env.local` and on
+Vercel production, and `http://localhost:3000/**` is in Supabase's redirect
+allow-list. **These take effect on the next deploy**: Vercel reads environment
+variables at build time, so until then `/admin` still 404s and the promo
+checkout still falls through to the launch discount.
+
+The open question about the trial is closed, and the answer was free. A 7-day
+trial does **not** consume one of the four discounted months, so four is the
+right number — Polar leaves `discount_applied_at` null for a trialing
+checkout and stamps it at the first *paid* period instead. This came from
+reading Polar's source, which is both cheaper and more certain than the
+sandbox purchase the roadmap had budgeted for; `ROADMAP.md` §1 cites the
+lines.
+
 Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
 ## Current state
