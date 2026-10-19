@@ -208,17 +208,78 @@ export function studentDiscountId(): string | null {
   return process.env.POLAR_DISCOUNT_STUDENT || null;
 }
 
+/* -------------------------------------------------------------------------- */
+/* The "4 months for the price of 3" promotion                                */
+/* -------------------------------------------------------------------------- */
+
+/** The promotion's id in the app, in metadata, and in the `?promo=` link. */
+export const INDIE3 = "indie3";
+
+/**
+ * A repeating discount: 25% off for four months, on Indie Monthly.
+ *
+ * $9 x 4 is $36, which is four months for the price of three. It is expressed
+ * as an even discount rather than three paid months and a free one because
+ * Polar cannot express the latter: a subscription's interval is day, week,
+ * month or year, and a repeating discount applies the same percentage every
+ * period. Four at 25% is the same money and the same promise in the shape
+ * Polar can bill, and it leaves the subscription renewing normally at $12
+ * afterwards rather than ending.
+ *
+ * Configure it in Polar with `duration: repeating`, `duration_in_months: 4`,
+ * `products: [Indie Monthly]` and a `max_redemptions` cap — the cap is the
+ * only thing bounding what the promotion can cost.
+ */
+export function promoDiscountId(): string | null {
+  return process.env.POLAR_DISCOUNT_INDIE3 || null;
+}
+
+/**
+ * Whether this checkout may carry the promotion.
+ *
+ * Indie monthly only. Yearly Indie is already $10 a month and the promotion
+ * exists to get monthly subscribers past the point where they decide whether
+ * this was worth it, which is not a problem a yearly subscriber has. Pro is
+ * excluded because the arithmetic was done on Indie's margin and nothing has
+ * been done on Pro's.
+ *
+ * Checked on the server as well as in the link, so a founder who edits
+ * `?tier=` in the URL does not get Pro at 25% off.
+ */
+export function promoEligible(tier: PaidTier, period: BillingPeriod): boolean {
+  return Boolean(promoDiscountId()) && tier === "indie" && period === "monthly";
+}
+
 /**
  * Which discount a checkout should carry.
  *
  * Polar applies one discount per checkout, so this is a choice rather than a
- * sum. A verified student gets the student discount even though the launch
- * promotion may be larger on the first invoice: theirs is the one that keeps
- * applying, and quietly giving someone the worse long-term deal because it
- * looks bigger today is not a trade worth making on their behalf.
+ * sum, and the order is the whole content of the function:
+ *
+ *   1. The student rate. A verified student gets it even though the launch
+ *      promotion may be larger on the first invoice: theirs is the one that
+ *      keeps applying, and quietly giving someone the worse long-term deal
+ *      because it looks bigger today is not a trade to make on their behalf.
+ *   2. The 4-for-3 promotion, when the founder arrived through that link and
+ *      the plan qualifies. -25% over four months beats the launch promotion's
+ *      -20% once, and it is also the thing they were promised.
+ *   3. The launch promotion, which applies to everyone else.
+ *
+ * `wantsPromo` is the caller's business: this does not look at a request.
  */
-export function discountForCheckout(studentVerified: boolean): string | null {
-  return (studentVerified ? studentDiscountId() : null) ?? autoDiscountId();
+export function discountForCheckout(
+  studentVerified: boolean,
+  wantsPromo = false,
+): string | null {
+  if (studentVerified) {
+    const student = studentDiscountId();
+    if (student) return student;
+  }
+  if (wantsPromo) {
+    const promo = promoDiscountId();
+    if (promo) return promo;
+  }
+  return autoDiscountId();
 }
 
 /**

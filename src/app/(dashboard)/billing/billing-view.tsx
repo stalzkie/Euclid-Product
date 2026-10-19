@@ -36,6 +36,7 @@ export function BillingView({
   founderEmail,
   founderName,
   billing,
+  bernn,
   studentState,
 }: {
   workspaceName: string;
@@ -67,6 +68,8 @@ export function BillingView({
     /** Whether a student discount is configured on this deployment. */
     studentDiscount: boolean;
   };
+  /** The partner promotion's code, when this workspace earned one. */
+  bernn: { code: string | null } | null;
   studentState: {
     verified: boolean;
     email: string | null;
@@ -528,6 +531,56 @@ export function BillingView({
             </Banner>
           )}
         </section>
+
+        {/*
+          The partner half of the 4-for-3 promotion.
+
+          Shown only to workspaces that earned one, since it is not an offer
+          anyone can take from here — the Euclid half is a discount applied at
+          checkout, and by the time this renders it has already been paid for.
+        */}
+        {bernn && (
+          <section
+            aria-labelledby="bernn-title"
+            className="flex flex-col gap-3 rounded-card border border-line bg-canvas p-5"
+          >
+            <SectionTitle id="bernn-title">Your free month of Bernn</SectionTitle>
+            {bernn.code ? (
+              <>
+                <p className="text-[13px] leading-[1.5] text-ink-2">
+                  Part of the 4-for-3 offer. Open Bernn, go to Settings — or tap
+                  “Have a code?” on the paywall — and enter this. It works once.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="flex-1 truncate rounded-control border border-line bg-subtle px-3 py-2 font-mono text-[13px] text-ink">
+                    {bernn.code}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(bernn.code ?? "");
+                      toast("Code copied");
+                    }}
+                    className="flex h-9 items-center gap-[6px] rounded-control border border-line-strong px-3 text-[12.5px] font-medium text-ink hover:bg-subtle"
+                  >
+                    <Icon name="copy" size={13} strokeWidth={1.9} />
+                    Copy
+                  </button>
+                </div>
+                <p className="text-[12px] text-ink-3">
+                  Already on Bernn Pro? Trying it does not spend it — keep it for whenever
+                  your subscription lapses.
+                </p>
+              </>
+            ) : (
+              <p className="text-[13px] leading-[1.5] text-ink-2">
+                Your code is on its way — we ran out at the moment you bought, which is
+                our fault rather than yours. It will appear here and by email shortly,
+                with nothing for you to do.
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Referrals */}
         <section

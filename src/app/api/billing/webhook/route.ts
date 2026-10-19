@@ -1,15 +1,21 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { webhooks } from "@polar-sh/sdk/2027-01";
 import { hasServiceRole } from "@/lib/supabase/server";
 import {
   applyReferralCommission,
   applySubscription,
   applyTopup,
+  claimPartnerCode,
+  partnerPoolStatus,
   reverseReferralCommission,
   reverseTopup,
   subscriptionStateFrom,
 } from "@/server/billing";
 import { orderAmountCents } from "@/lib/referrals";
+import { INDIE3 } from "@/lib/polar";
+import { sendPartnerCode, topUpPartnerPool, warnPartnerPoolLow } from "@/server/partner";
+import { drainAfterResponse } from "@/server/dispatch";
+import { sendQueuedEmails } from "@/server/jobs";
 
 /**
  * Polar's webhook. The only thing in the system allowed to move a workspace
@@ -147,6 +153,90 @@ async function handleOrder(event: { type: string; data: unknown }) {
     console.info(
       `[billing] ${event.type}: ${commission.quantity} prompts to the referrer of ${buyer}`,
     );
+  }
+
+  /*
+    The partner half of the 4-for-3 promotion.
+
+    Granted on the first order with money in it rather than after the third,
+    which is the trade the promotion is built on: a month of Bernn costs
+    infrastructure rather than cash, so the hook is worth more than the
+    protection waiting would buy. `orderAmountCents > 0` is what skips a
+    trial's $0 invoice — the same guard the commission above relies on.
+
+    `metadata.promo` is set by our own checkout route and only when the
+    discount actually applied, so this cannot be triggered by a founder adding
+    ?promo= to a URL.
+  */
+  if (buyer && order.metadata?.promo === INDIE3 && orderAmountCents(order) > 0) {
+    const claim = await claimPartnerCode({ workspaceId: buyer, orderId: order.id });
+
+    if (!claim.ok) {
+      console.error(`[billing] ${event.type}: partner code: ${claim.error}`);
+      return NextResponse.json({ error: claim.error }, { status: 422 });
+    }
+
+    // A replay. The grant already stands and the founder already has the
+    // email; doing nothing is the whole of the correct behaviour here.
+    if (!claim.granted) {
+      console.info(`[billing] partner code already granted to ${buyer}`);
+    } else if (claim.owed) {
+      // Not an error to Polar: the payment was fine and the obligation is
+      // recorded. It is an error to us, and the only way anyone finds out.
+      console.error(`[billing] partner pool empty — ${buyer} is owed a code`);
+      await warnPartnerPoolLow(await partnerPoolStatus());
+
+      /*
+        Try to refill now rather than leaving them owed until tomorrow.
+
+        In `after()`, which is what keeps the rule intact: this runs once the
+        200 is on the wire, so Bernn being slow or down cannot delay Polar's
+        webhook or turn it into a retry. The founder who just paid gets their
+        code in seconds instead of a day, and nothing about the payment path
+        depends on that working.
+
+        The cron does the same thing on a schedule. This is the impatient
+        version for the case that actually hurts, not a replacement for it —
+        Euclid's cron is daily.
+      */
+      after(async () => {
+        const top = await topUpPartnerPool();
+        if (top.ok && top.filled > 0) {
+          console.info(`[billing] pool refilled, settled ${top.filled} owed`);
+          /*
+            Drained inline rather than through `drainAfterResponse`.
+
+            A settled grant queues the founder's code email, and this is
+            already running inside an after-response callback — the drain
+            scheduled further down may well have run before this did, so
+            scheduling another one risks the email waiting for the daily cron.
+            Sending here is what the cron route does and is strictly more
+            immediate than deferring again.
+          */
+          await sendQueuedEmails(20);
+        } else if (!top.ok && top.reason !== "not configured") {
+          console.error(`[billing] pool refill failed: ${top.reason}`);
+        }
+      });
+    } else if (claim.code) {
+      await sendPartnerCode(buyer, claim.code);
+    }
+
+    /*
+      Send it as soon as this response is out rather than leaving it for the
+      daily cron.
+
+      The founder has just paid and been redirected to the billing page; a
+      code that arrives tomorrow reads as a promise half kept. Same reasoning
+      as the magic link and the student verification, and the same mechanism —
+      `tests/unit/outbox-drain.test.ts` is what insists on it, and it caught
+      this file queueing without draining.
+
+      Deliveries are off: nothing here enqueues an integration event, and
+      draining that queue on a billing webhook would be work for another
+      board's benefit on a request that is not theirs.
+    */
+    drainAfterResponse({ deliveries: false });
   }
 
   const result = await applyTopup({

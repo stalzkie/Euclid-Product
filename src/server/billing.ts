@@ -341,3 +341,75 @@ export async function reverseReferralCommission(
   if (error) return { ok: false, error: error.message };
   return { ok: true, reversed: data === true };
 }
+
+/* --------------------------------------------------------------------------
+ * The partner promotion
+ *
+ * "4 months for the price of 3" pays out in two currencies. Euclid's half is
+ * a Polar discount and happens without this code ever running. Bernn's half
+ * is a single-use promo code handed out from a pool -- see
+ * 0025_partner_promo.sql for why a pool rather than a call to Bernn.
+ * ------------------------------------------------------------------------ */
+
+export const BERNN = "bernn";
+
+/**
+ * Give this workspace its partner code, once.
+ *
+ * Returns the code, or null when the workspace is owed one the pool could not
+ * cover. Both are `ok` — a webhook must not fail over inventory, and the IOU
+ * row means nobody is forgotten. `owed` is what the caller shouts about.
+ *
+ * Idempotent through the grant row rather than the order id: the promise is
+ * one month of Bernn per workspace, not one per order, so a founder who
+ * resubscribes next year does not get a second.
+ */
+export async function claimPartnerCode(args: {
+  workspaceId: string;
+  partner?: string;
+  orderId: string;
+}): Promise<
+  | { ok: true; code: string | null; owed: boolean; granted: boolean }
+  | { ok: false; error: string }
+> {
+  const partner = args.partner ?? BERNN;
+  const { data, error } = await supabaseAdmin()
+    .rpc("claim_partner_code", {
+      p_workspace: args.workspaceId,
+      p_partner: partner,
+      p_order_id: args.orderId,
+    })
+    .maybeSingle<{ code: string | null; granted: boolean }>();
+
+  if (error) return { ok: false, error: error.message };
+
+  const code = data?.code ?? null;
+  return {
+    ok: true,
+    code,
+    owed: code === null,
+    // False on a replay. The grant is idempotent on its own, but the email
+    // is not — without this, Polar's three deliveries of one order sent the
+    // founder three copies of the same code. See 0028.
+    granted: data?.granted === true,
+  };
+}
+
+/** Codes left in the pool, and workspaces still waiting on one. */
+export async function partnerPoolStatus(
+  partner = BERNN,
+): Promise<{ available: number; owed: number } | null> {
+  const { data, error } = await supabaseAdmin()
+    .rpc("partner_pool_status", { p_partner: partner })
+    .maybeSingle<{ available: number; owed: number }>();
+  return error ? null : (data ?? null);
+}
+
+/** Settle the IOUs left by an empty pool, once codes have been added. */
+export async function fillPartnerGrants(partner = BERNN, limit = 100): Promise<number> {
+  const { data, error } = await supabaseAdmin().rpc("fill_partner_grants", {
+    p_partner: partner,
+    p_limit: limit,
+  });
+  return error ? 0 : ((data as number | null) ?? 0);
+}

@@ -34,6 +34,9 @@ const DRAINED_BY_CALLER: Record<string, string> = {
   // request a few lines later, which is stricter than after-response work
   // rather than weaker: the row is sent before the response is written.
   "server/jobs.ts": "app/api/jobs/run/route.ts",
+  // The partner promo code and the pool warning are both queued while
+  // handling a Polar webhook, which drains once its 200 is on the wire.
+  "server/partner.ts": "app/api/billing/webhook/route.ts",
 };
 
 function sourceFiles(dir: string): string[] {

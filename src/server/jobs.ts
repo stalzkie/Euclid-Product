@@ -20,6 +20,8 @@ interface ClaimedEmail {
   to_email: string;
   subject: string;
   body: string;
+  html: string | null;
+  reply_to: string | null;
   kind: string;
   attempts: number;
 }
@@ -96,6 +98,8 @@ async function deliver(email: {
   to_email: string;
   subject: string;
   body: string;
+  html?: string | null;
+  reply_to?: string | null;
 }): Promise<Delivery> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
@@ -118,7 +122,21 @@ async function deliver(email: {
         from,
         to: email.to_email,
         subject: email.subject,
+        /*
+          Always both parts when there is an HTML one.
+
+          A message carrying only HTML is a spam signal in its own right, and
+          some clients still prefer text — so `text` stays the canonical copy
+          and `html` is added beside it rather than instead of it. A row with
+          no html sends exactly as it did before, which is what keeps the
+          magic link plain.
+        */
         text: email.body,
+        ...(email.html ? { html: email.html } : {}),
+        // A transactional mail a human answers is one of the stronger signals
+        // against Gmail filing it under Promotions, and the sign-off promises
+        // exactly that. See 0029_email_html.sql.
+        ...(email.reply_to ? { reply_to: email.reply_to } : {}),
       }),
     });
     if (!res.ok) {

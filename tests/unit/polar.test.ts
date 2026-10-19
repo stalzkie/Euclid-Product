@@ -8,6 +8,8 @@ import {
   planForProduct,
   polarServer,
   productIdFor,
+  promoDiscountId,
+  promoEligible,
   trialDays,
 } from "@/lib/polar";
 
@@ -24,6 +26,7 @@ const ENV_KEYS = [
   "POLAR_TRIAL_DAYS",
   "POLAR_DISCOUNT_FIRST_PURCHASE",
   "POLAR_DISCOUNT_STUDENT",
+  "POLAR_DISCOUNT_INDIE3",
   ...POLAR_PRODUCTS.map((p) => p.env),
 ];
 
@@ -230,5 +233,72 @@ describe("discountForCheckout", () => {
   it("is null when no discount is running at all", () => {
     expect(discountForCheckout(true)).toBeNull();
     expect(discountForCheckout(false)).toBeNull();
+  });
+});
+
+/**
+ * The "4 months for the price of 3" promotion.
+ *
+ * Two things can go wrong and they cost differently. Letting it apply where it
+ * should not discounts a plan whose margin was never worked out for it, every
+ * month, for four months. Failing to apply it where it should loses a sale
+ * that was already half made. The first is the one worth being strict about,
+ * which is why eligibility is re-derived on the server rather than trusted
+ * from the link the founder clicked.
+ */
+describe("the 4-for-3 promotion", () => {
+  it("is not on offer unless a discount id is configured", () => {
+    // A deployment without the discount must not advertise or apply it.
+    expect(promoDiscountId()).toBeNull();
+    expect(promoEligible("indie", "monthly")).toBe(false);
+  });
+
+  it("applies to Indie monthly only", () => {
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    expect(promoEligible("indie", "monthly")).toBe(true);
+  });
+
+  it("refuses Pro, whose margin it was never costed against", () => {
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    // The query string is a request, not permission: ?tier=pro&promo=indie3
+    // must not buy Pro at 25% off for four months.
+    expect(promoEligible("pro", "monthly")).toBe(false);
+    expect(promoEligible("pro", "yearly")).toBe(false);
+  });
+
+  it("refuses yearly, which is already cheaper per month", () => {
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    // Indie yearly is $10/mo. The promotion exists to carry a *monthly*
+    // subscriber past the point where they decide it was worth it.
+    expect(promoEligible("indie", "yearly")).toBe(false);
+  });
+
+  it("beats the launch promotion when the founder came through its link", () => {
+    process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    // -25% over four months against -20% once, and it is what they were told.
+    expect(discountForCheckout(false, true)).toBe("disc_indie3");
+  });
+
+  it("loses to the student rate, which keeps applying", () => {
+    process.env.POLAR_DISCOUNT_STUDENT = "disc_student";
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    // Same reasoning the launch promotion already loses on: four months of
+    // -25% is worth less than -50% forever, and picking the bigger number
+    // today on someone else's behalf is the wrong trade.
+    expect(discountForCheckout(true, true)).toBe("disc_student");
+  });
+
+  it("falls back to the launch promotion when the promo is unconfigured", () => {
+    process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
+    // Asked for, not available: the founder still gets the standing offer
+    // rather than no discount at all.
+    expect(discountForCheckout(false, true)).toBe("disc_launch");
+  });
+
+  it("is not applied to a checkout that did not ask for it", () => {
+    process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    expect(discountForCheckout(false)).toBe("disc_launch");
   });
 });

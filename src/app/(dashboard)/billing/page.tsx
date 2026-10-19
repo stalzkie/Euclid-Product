@@ -27,6 +27,25 @@ export default async function BillingPage() {
     .select("user_id,role,name,created_at")
     .eq("workspace_id", ctx.workspace.id);
 
+  /*
+    The Bernn code from the 4-for-3 promotion, if this workspace earned one.
+
+    Read through the session, which RLS allows via `partner_grants_member_read`
+    — unlike `partner_codes`, which has no policy at all because unclaimed
+    codes are inventory rather than anybody's property.
+
+    A row with a null `code` means the pool was empty when they qualified and
+    they are owed one; the view says so rather than showing nothing, because
+    the alternative is a founder who paid for a promotion and sees no sign of
+    half of it.
+  */
+  const { data: partner } = await db
+    .from("partner_grants")
+    .select("code")
+    .eq("workspace_id", ctx.workspace.id)
+    .eq("partner", "bernn")
+    .maybeSingle();
+
   return (
     <Shell active="settings" ctx={ctx} wide>
       <BillingView
@@ -56,6 +75,7 @@ export default async function BillingPage() {
           trialDays: trialDays(),
           studentDiscount: Boolean(studentDiscountId()),
         }}
+        bernn={partner ? { code: partner.code as string | null } : null}
         studentState={{
           verified: studentVerified,
           email: ctx.workspace.student_email,

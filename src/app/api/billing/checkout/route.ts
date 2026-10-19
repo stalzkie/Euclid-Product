@@ -3,14 +3,17 @@ import { z } from "zod";
 import { requireFounder } from "@/server/context";
 import { polar } from "@/server/billing";
 import {
+  INDIE3,
   billingEnabled,
   discountForCheckout,
   productIdFor,
+  promoEligible,
   type BillingPeriod,
   type PaidTier,
 } from "@/lib/polar";
 import { studentVerificationActive } from "@/lib/student";
 import { appOrigin } from "@/lib/origin";
+import { RATE_LIMITED, withinLimit } from "@/server/limits";
 
 /**
  * Start a Polar checkout for the signed-in founder's workspace.
@@ -25,6 +28,17 @@ import { appOrigin } from "@/lib/origin";
 const Params = z.object({
   tier: z.enum(["indie", "pro"]),
   period: z.enum(["monthly", "yearly"]),
+  /*
+    The promotion, when the founder arrived through its link.
+
+    A flag rather than a code typed at Polar's checkout page, matching the
+    student and launch discounts: this deployment applies discounts by id, so
+    nothing is typed in and nothing can be shared further than the link. The
+    cap on what it can cost is `max_redemptions` on the Polar discount, not
+    this parameter — anyone can put ?promo=indie3 in the URL, and that is the
+    same thing as having the link.
+  */
+  promo: z.literal(INDIE3).nullish(),
 });
 
 export async function GET(request: NextRequest) {
@@ -33,9 +47,16 @@ export async function GET(request: NextRequest) {
   }
 
   const ctx = await requireFounder();
+
+  // Each of these is a Polar API call on our organisation token. The ceiling
+  // is shared across the billing routes because they share that resource.
+  if (!(await withinLimit(ctx.workspace.id, "billing", ctx.userId))) {
+    return NextResponse.json({ error: RATE_LIMITED }, { status: 429 });
+  }
   const parsed = Params.safeParse({
     tier: request.nextUrl.searchParams.get("tier"),
     period: request.nextUrl.searchParams.get("period"),
+    promo: request.nextUrl.searchParams.get("promo"),
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Pick a plan and a billing period." }, { status: 400 });
@@ -53,7 +74,12 @@ export async function GET(request: NextRequest) {
   // the request: the verification link is what grants it, and this is only
   // reading the result.
   const student = studentVerificationActive(ctx.workspace.student_verified_at, new Date());
-  const discount = discountForCheckout(student);
+
+  // Eligibility is re-checked here and not trusted from the query string: the
+  // link only says what the founder asked for, and `promoEligible` decides
+  // whether this plan and period may actually have it.
+  const promo = parsed.data.promo === INDIE3 && promoEligible(tier, period);
+  const discount = discountForCheckout(student, promo);
 
   try {
     const checkout = await polar().checkouts.create({
@@ -67,7 +93,19 @@ export async function GET(request: NextRequest) {
       // The webhook's most direct route back to the workspace. Belt and braces
       // with `external_customer_id`, because a subscription created any other
       // way still has to be placeable.
-      metadata: { workspace_id: ctx.workspace.id },
+      /*
+        `promo` rides along so the webhook can tell a promotional order from an
+        ordinary one without reading the discount back off it. Metadata is
+        already the mechanism the referral attribution leans on, and
+        0020_referrals.sql records that it survives checkout -> order ->
+        subscription on this organisation's own live payloads.
+
+        Only set when the promotion actually applied, so the Bernn grant
+        cannot be triggered by asking for it.
+      */
+      metadata: promo
+        ? { workspace_id: ctx.workspace.id, promo: INDIE3 }
+        : { workspace_id: ctx.workspace.id },
       success_url: `${base}/billing?upgraded=1`,
       // The launch promotion, when one is running. Spread rather than passed
       // as null: Polar treats an explicit null as "no discount", which is the
