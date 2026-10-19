@@ -6,6 +6,7 @@ import {
   partnerCodeHtml,
   partnerCodeText,
 } from "@/lib/emails/partner-code";
+import { replyTo, signOff } from "@/lib/emails/sender";
 import { partnerPoolStatus, fillPartnerGrants, BERNN } from "@/server/billing";
 
 /**
@@ -43,23 +44,6 @@ const TRIAL_DAYS = 30;
 
 /** How long to wait on Bernn before giving up and letting the pool drain. */
 const MINT_TIMEOUT_MS = 15_000;
-
-/**
- * Who signs the customer-facing mail, and where a reply lands.
- *
- * A person rather than "the Euclid team", because a named human sender is one
- * of the clearer signals that a message is correspondence rather than a
- * campaign -- and the sign-off promises a reply, so `EMAIL_REPLY_TO` has to
- * reach somewhere a human actually looks. Both fall back rather than fail: an
- * unset reply-to simply means replies go to the sender.
- */
-function signOff(): string {
-  return process.env.EMAIL_SIGN_OFF || "Stal from Euclid";
-}
-
-function replyTo(): string | null {
-  return process.env.EMAIL_REPLY_TO || null;
-}
 
 /** Where operational warnings go. Falls back to the sender address. */
 function operatorAddress(): string | null {

@@ -3,6 +3,12 @@ import { embed, postEmbeddingText } from "@/lib/ai/embeddings";
 import { generateDigest } from "@/lib/ai/clustering";
 import { hasAnthropic } from "@/lib/ai/client";
 import { retryDelaySeconds, retriesLeft } from "@/lib/retry";
+import {
+  trialEndingHtml,
+  trialEndingSubject,
+  trialEndingText,
+} from "@/lib/emails/trial-ending";
+import { replyTo, signOff } from "@/lib/emails/sender";
 
 /**
  * Background work. Anything slow or expensive runs here so board reads stay
@@ -360,22 +366,22 @@ export async function remindExpiringTrials(origin: string): Promise<TrialReminde
       ? new Date(workspace.current_period_end).toUTCString()
       : "in the next couple of days";
 
+    const content = {
+      workspaceName: workspace.name as string,
+      endsAt: ends,
+      exact: Boolean(workspace.current_period_end),
+      billingUrl: `${origin}/billing`,
+      recipient: email,
+      signOff: signOff(),
+      origin,
+    };
+
     await db.from("email_outbox").insert({
       to_email: email,
-      subject: `Your Euclid trial ends ${workspace.current_period_end ? "soon" : "shortly"}`,
-      body: [
-        `Your ${workspace.name} trial ends ${ends}.`,
-        "",
-        "Euclid does not have a card for you yet — the trial did not ask for",
-        "one — so nothing will be charged, and the workspace will drop to the",
-        "free plan when the trial runs out. Boards stay up on free; the",
-        "allowances get smaller.",
-        "",
-        "To stay on your current plan, add a card here:",
-        `${origin}/billing`,
-        "",
-        "If you would rather not continue, you do not need to do anything.",
-      ].join("\n"),
+      subject: trialEndingSubject(content.exact),
+      body: trialEndingText(content),
+      html: trialEndingHtml(content),
+      reply_to: replyTo(),
       kind: "trial_ending",
     });
 

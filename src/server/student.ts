@@ -1,6 +1,12 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { newMagicToken } from "@/server/identity";
 import { classifyStudentEmail, type StudentEmailKind } from "@/lib/student";
+import {
+  STUDENT_VERIFICATION_SUBJECT,
+  studentVerificationHtml,
+  studentVerificationText,
+} from "@/lib/emails/student-verification";
+import { replyTo, signOff } from "@/lib/emails/sender";
 
 /**
  * Sending and redeeming student verification links.
@@ -75,37 +81,54 @@ export async function requestStudentVerification(
 
   const link = `${origin}/api/billing/student?token=${token}`;
 
-  const body =
-    kind === "auto"
-      ? [
-          "Confirm your student discount",
-          "",
-          `Open this link to apply the student discount to your Euclid workspace:`,
-          link,
-          "",
-          `The link works once and expires in ${LINK_HOURS} hours. If you did not`,
-          "ask for this, ignore it — nothing happens until the link is opened.",
-        ].join("\n")
-      : [
-          "A student discount needs review",
-          "",
-          `Workspace: ${workspaceId}`,
-          `Claimed address: ${email}`,
-          "",
-          "That domain is not recognisably academic, which does not mean it is",
-          "not a university — most of Europe and Latin America sit on ordinary",
-          "national domains. Check it, then open this link to approve:",
-          link,
-          "",
-          `Expires in ${LINK_HOURS} hours. Ignore it to refuse.`,
-        ].join("\n");
+  /*
+    Two emails, and only one of them is customer-facing.
 
-  await db.from("email_outbox").insert({
-    to_email: recipient,
-    subject: kind === "auto" ? "Confirm your Euclid student discount" : "Euclid: student discount to review",
-    body,
-    kind: "student_verification",
-  });
+    `auto` goes to the student at the address they typed, so it gets the
+    shared chrome and a text part beside it. `review` goes to
+    `STUDENT_REVIEW_EMAIL` and is an operator's triage note — a workspace
+    id, a claimed address and a link to approve. Branding that would make a
+    worklist look like marketing and bury the two facts it carries, so it
+    stays plain. `email_outbox.html` is nullable precisely so one row can
+    have one and the next can not.
+  */
+  if (kind === "auto") {
+    const content = {
+      link,
+      expiresInHours: LINK_HOURS,
+      recipient,
+      signOff: signOff(),
+      origin,
+    };
+
+    await db.from("email_outbox").insert({
+      to_email: recipient,
+      subject: STUDENT_VERIFICATION_SUBJECT,
+      body: studentVerificationText(content),
+      html: studentVerificationHtml(content),
+      reply_to: replyTo(),
+      kind: "student_verification",
+    });
+  } else {
+    await db.from("email_outbox").insert({
+      to_email: recipient,
+      subject: "Euclid: student discount to review",
+      body: [
+        "A student discount needs review",
+        "",
+        `Workspace: ${workspaceId}`,
+        `Claimed address: ${email}`,
+        "",
+        "That domain is not recognisably academic, which does not mean it is",
+        "not a university — most of Europe and Latin America sit on ordinary",
+        "national domains. Check it, then open this link to approve:",
+        link,
+        "",
+        `Expires in ${LINK_HOURS} hours. Ignore it to refuse.`,
+      ].join("\n"),
+      kind: "student_verification",
+    });
+  }
 
   return { ok: true, kind, sentTo: recipient };
 }
