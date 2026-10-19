@@ -137,6 +137,10 @@ export const config = {
     "/profile/:path*",
     "/billing/:path*",
     "/ask/:path*",
+    // Not a founder screen, but it is still a dashboard route: without it the
+    // session cookie is never refreshed here, so an operator with an expired
+    // access token is bounced to /signup instead of being rotated through.
+    "/admin/:path*",
     "/onboarding/:path*",
     // Added for referrals: a shared link points at /signup, which was not
     // matched before, so nothing ran there to capture the code. The auth
