@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { supabaseAdmin, hasServiceRole } from "@/lib/supabase/server";
 
 /**
@@ -55,10 +54,38 @@ export function fingerprint(kind: string, message: string, route: string | null)
     .trim()
     .slice(0, 300);
 
-  return createHash("sha256")
-    .update(`${kind}|${normalised}|${normaliseRoute(route) ?? ""}`)
-    .digest("hex")
-    .slice(0, 32);
+  return hash(`${kind}|${normalised}|${normaliseRoute(route) ?? ""}`);
+}
+
+/**
+ * A plain string hash, deliberately not SHA-256.
+ *
+ * `node:crypto` cannot be loaded in the Edge runtime, and `instrumentation.ts`
+ * is loaded in both — so importing it here meant errors raised in middleware,
+ * which runs on Edge, were the one class of error this could never record.
+ * Turbopack said so as a build warning.
+ *
+ * Web Crypto would work in both but is async, and this is called from a
+ * synchronous fingerprint on an error path. The simpler answer is that a
+ * fingerprint has no security property at all: it is a grouping key, nobody
+ * is attacking it, and the only cost of a collision is two unrelated faults
+ * sharing a row. Two rounds of cyrb53 with different seeds give 106 bits,
+ * which makes that vanishingly unlikely.
+ */
+function hash(input: string): string {
+  const round = (seed: number) => {
+    let h1 = 0xdeadbeef ^ seed;
+    let h2 = 0x41c6ce57 ^ seed;
+    for (let i = 0; i < input.length; i++) {
+      const ch = input.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+  };
+  return `${round(0)}${round(0x9e3779b9)}`.slice(0, 32);
 }
 
 /**

@@ -12,8 +12,9 @@ export async function onRequestError(
   error: unknown,
   request: { path?: string; method?: string },
 ): Promise<void> {
-  // Imported lazily so the Edge runtime, which also loads this file, does not
-  // pull in node:crypto and the Supabase client when it has no use for them.
+  // Imported lazily so neither runtime pays for the Supabase client until
+  // something actually fails. `recordError` itself is Edge-safe — see the
+  // note on `hash` in that file for why the fingerprint is not SHA-256.
   const { recordError } = await import("@/server/errors");
   const route = request.path ? `${request.method ?? "GET"} ${request.path}` : null;
   await recordError(error, route);
