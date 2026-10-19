@@ -1,7 +1,31 @@
 # Where this stands
 
-Written 2026-10-12, updated 2026-10-13. Read this first in a new session;
-`README.md` explains how the product works, this explains what state it is in.
+Written 2026-10-12, updated 2026-10-19. Read this first in a new session;
+`README.md` explains how the product works, this explains what state it is in,
+and `ROADMAP.md` tracks what is in flight.
+
+**2026-10-19 in one paragraph.** Nine migrations, `0021` through `0029`, all
+applied to production. The guardrails pass fixed three real holes: AI usage
+was metered with a read-compute-write that let concurrent generations
+overwrite each other's increments, the rate limiter counted before it
+inserted and swept the whole table on every vote, and `Origin: http://localhost`
+skipped the domain allow-list from anywhere. Public rate limits gained a
+hashed-IP bucket, so clearing cookies is no longer a reset. The 4-for-3
+promotion is built end to end and exercised without spending anything. There
+is a setup checklist on the dashboard home and an operator page at `/admin`
+with queues, billing, AI usage, a derived funnel and grouped errors. Email can
+carry an HTML part. **Test count is now 575 across 31 files.**
+
+The three things most worth knowing from that day, because each was found by
+looking at live data rather than by reading code:
+
+- The referral panel's signup count was structurally zero — it counted through
+  RLS, which hides exactly the rows it needed. Fixed in `0021`.
+- `/admin` caught its own first bug within a minute of existing, and the first
+  error it stored revealed that fingerprints included Next's random `?_rsc=`
+  parameter, which would have made every occurrence its own row.
+- The promo's *grant* was idempotent and its *email* was not, so Polar's three
+  deliveries sent three copies. Fixed in `0028`.
 
 Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
@@ -71,6 +95,11 @@ what was done, what is still open, and the traps that cost time. It also
 carries the one thing currently blocking payments — two missing token scopes.
 
 ## Start here
+
+**Out of date below.** The student verification email, the moderation queue,
+the JWT identity spec and the token scopes were all closed on 2026-10-15 —
+see the end of `SESSION-2026-10-13.md`. What remains open from this list is
+item 1, and `ROADMAP.md` carries everything newer.
 
 Ordered by what actually blocks a launch. Detail for each is further down.
 

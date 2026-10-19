@@ -307,9 +307,30 @@ Point a scheduler at these with `Authorization: Bearer $CRON_SECRET`:
 - `POST /api/jobs/digest` — the weekly recommendation and embedding backfill.
   Weekly.
 
-## Not built yet
+## State
 
-Read-only GitHub repo context and the MCP server are P2 in the PRD and are not
-here. Billing changes plans without charging — no payment provider is wired up.
-Slack, Discord, GitHub and Linear integrations are placeholders on the Install
-screen.
+Everything in the PRD is built, including the two P2 items — read-only GitHub
+repo context and the MCP server. Billing runs on Polar, which is the merchant
+of record: the webhook is the only thing that can move a workspace between
+tiers. Slack, Discord, GitHub and Linear are wired up rather than placeholders.
+
+Beyond the PRD: a student rate, referrals paid in Build Prompts, one-time
+top-ups, a 4-for-3 promotion that also grants a month of Bernn Pro, a setup
+checklist, and an operator dashboard at `/admin`.
+
+`ROADMAP.md` lists what is in flight and what is carried over. `HANDOFF.md`
+says what state the deployment is in.
+
+### Things worth knowing
+
+- **The domain allow-list is not an authentication boundary.** `Origin` is set
+  by browsers; anything else sends what it likes. What it buys is that a
+  *browser* on someone else's site cannot embed the widget. The controls that
+  bound a determined caller are the rate limits, the spam score and approval
+  queue, and the identity mode.
+- **Loopback is allowed only until a board goes live.** `boards.installed_at`
+  records when the widget was first served to a real page; after that,
+  `localhost` must be in the allow-list explicitly.
+- **AI usage is metered in SQL**, not in the request. `spend_allowance` locks
+  the row, because computing it in TypeScript meant concurrent generations
+  overwrote each other's increments and were never counted.
