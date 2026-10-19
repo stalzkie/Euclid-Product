@@ -340,13 +340,17 @@ stands up Supabase. It found two real widget bugs on its first run; see
    generated link's `redirect_to` and says so by name rather than timing out on
    a dashboard assertion.
 
-   **Still not covered:** the dashboard server actions have only unit tests on
-   their pure logic. The JWT identity path (`window.EuclidIdentity` ->
-   `&token=` -> "Posting as …") has unit tests and
-   `scripts/test-identity.mjs`, but no browser spec; it is the cheapest next
-   one to add, needing a board with `identity_mode: "jwt"` and `EUCLID_SECRET`
-   shared with the server. Slack's payload shape is still unexercised
-   end to end. `scripts/widget-e2e.mjs` remains as a manual API harness.
+   **The JWT identity spec exists** — `tests/e2e/identity.spec.ts`, four
+   specs covering the token reaching the frame, a post being attributed, a
+   token signed with the wrong secret leaving an anonymous but working
+   board, and no `EuclidIdentity` meaning no token. So does
+   `moderation.spec.ts`. The whole suite is **21 specs, run green on
+   2026-10-19**.
+
+   **Still not covered:** the dashboard server actions have only unit tests
+   on their pure logic, and Slack's payload shape is still unexercised end
+   to end — that one needs a live webhook rather than a spec.
+   `scripts/widget-e2e.mjs` remains as a manual API harness.
 
 5. **A real Discord webhook has now received messages.** On 2026-10-13 all
    three shapes were delivered to a live webhook and accepted with `204 No

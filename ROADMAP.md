@@ -162,8 +162,23 @@ body.
       this points replies into nothing — change it to an inbox that is read.
 - [x] **It lands in Primary, not Promotions.** Confirmed by the founder on
       2026-10-19.
-- [ ] The other three emails — magic link, student verification, trial
-      reminder — are still text-only. The magic link should stay that way.
+- [x] **The student verification and trial-reminder emails now carry HTML**,
+      through the same shell as the partner code, with the text part beside
+      rather than beneath it.
+
+      Two deliberately stay plain. The **magic link**, because a sign-in link
+      is the most impersonated mail a product sends and plain text is both
+      harder to fake convincingly and easier for a careful reader to check.
+      And the **student *review* note** — `requestStudentVerification` sends
+      two different emails, and that one goes to `STUDENT_REVIEW_EMAIL`
+      carrying a workspace id, a claimed address and a link to approve.
+      Branding an operator's worklist would make it look like marketing and
+      bury the two facts it exists to carry.
+
+      `signOff` and `replyTo` moved out of `server/partner.ts` to
+      `lib/emails/sender.ts`; three senders needed the same two answers and
+      three copies drift into one email signed by a person and another by
+      nobody.
 - [ ] SPF, DKIM and DMARC on the sending domain, per `EMAILS.md` §3.
       **Deliberately deferred 2026-10-19** — mail reaches Primary without it.
 - [ ] Later: `GET /partners/promo-codes/status`. Bernn's `promo_codes` already
@@ -300,14 +315,28 @@ will, and the reason to build them anyway is one place and one bill.
 From the production review of 2026-10-19. None of these are in flight.
 
 - [x] **Committed and pushed.** `main` matches `origin/main`, tree clean.
-- [ ] **Integration outbox has never run end to end.**
-      `enqueueIntegrationEvent` → `integration_outbox` →
-      `deliverIntegrationEvents` is unexercised against a real endpoint; only
-      `postToWebhook` has been called directly. **Slack has never received
-      anything** and its payload shape differs from Discord's.
-- [ ] **`deliver_after` is computed on the app's clock** and compared against
-      the database's. The PC's two-minute skew was corrected on 2026-10-19 so
-      this is latent rather than active; `now() + interval` in SQL removes it.
+- [~] **Integration outbox: everything but the success leg is now exercised.**
+      `tests/integration/integrations.test.ts` was run against the real
+      database and the built app on 2026-10-19 — 5 specs, green — covering
+      `enqueueIntegrationEvent` → `integration_deliveries` →
+      `deliverIntegrationEvents` → payload → POST → failure → backoff →
+      deactivation, and who does and does not get queued.
+
+      What is still missing is a **2xx from a real webhook**, which needs a
+      live Slack or Discord URL that a test suite has no business owning.
+      **Slack has still received nothing**, and its payload is `blocks`/mrkdwn
+      where Discord's is `embeds`, so Discord working says nothing about it.
+      Paste a webhook URL into the install screen and press "Send a test
+      message" — that is the whole remaining check.
+- [x] **`deliver_after` is now computed by the database.** `0030` adds
+      `fail_queued_email` and `fail_integration_delivery`, which take a delay
+      in seconds and do `now() + make_interval(...)` themselves; `retryAfter`
+      is deleted rather than deprecated, since it was correct on any machine
+      whose clock happened to agree. Applied to production and probed: 60
+      seconds on the database's clock where this machine would have written
+      ~180, `attempts` untouched, probe row removed by the statement that
+      measures it. A mutation-checked source guard fails the moment any file
+      assigns `deliver_after` itself again.
 - [x] **`README.md` refreshed** in `b009f9d` — billing charges, and the
       integrations are described as wired up.
 - [x] **`http://localhost:3000/**` added to Supabase's redirect allow-list**,
@@ -320,8 +349,13 @@ From the production review of 2026-10-19. None of these are in flight.
       API takes `redirect_to` at the top level, and nesting it under `options`
       (as the JS client does) sends no redirect at all and silently yields
       the site URL.
-- [ ] **The e2e suite stamps `installed_at`** on any board it drives with a
-      non-loopback Origin, because it runs against the production database.
+- [x] **The e2e suite does not stamp `installed_at`** — this was wrong, and
+      the correction is pinned by a test rather than just struck out.
+      `widget.spec.ts` drives `/demo/host.html`, which Next serves from the
+      app itself, so the Origin is always the app's own: loopback locally,
+      and our own host when `TEST_APP_URL` points at a deployment. Both are
+      already refused by `countsAsInstall`. There is no third configuration,
+      because the host page has nowhere else to be served from.
 - [ ] **`/api/board/installed` is fixed but the `load` bucket is still dead.**
       Nothing writes it; the route no longer reads it. Nothing to do unless
       something else wants that signal.
