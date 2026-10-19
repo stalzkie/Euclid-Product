@@ -39,6 +39,7 @@ async function deliveriesFor(integrationId: string) {
     delivered_at: string | null;
     last_error: string | null;
     deliver_after: string;
+    created_at: string;
   }>(`integration_deliveries?select=*&integration_id=eq.${integrationId}`);
 }
 
@@ -116,8 +117,27 @@ suite("integration delivery", () => {
       expect(delivery.delivered_at).toBeNull();
       expect(delivery.last_error).toBeTruthy();
 
-      // Backed off into the future, so the next drain does not hammer it.
-      expect(new Date(delivery.deliver_after).getTime()).toBeGreaterThan(Date.now());
+      /*
+        Backed off, measured against the database's clock rather than this
+        machine's.
+
+        `deliver_after` is written by `fail_integration_delivery` as
+        `now() + interval` (0030), and `created_at` defaults to `now()` on the
+        same server, so the gap between them is two readings of one clock and
+        cannot drift. Comparing against `Date.now()` here — as this did — was
+        the same mistake the migration removed, one layer up: it passed only
+        because this machine's clock happened to agree, and it would fail on
+        exactly the skewed machine the fix exists to protect.
+
+        The window is wide at the top because the drain happens a few seconds
+        after the insert, and those seconds land inside the gap.
+      */
+      const backoffSeconds =
+        (new Date(delivery.deliver_after).getTime() -
+          new Date(delivery.created_at).getTime()) /
+        1000;
+      expect(backoffSeconds).toBeGreaterThanOrEqual(60);
+      expect(backoffSeconds).toBeLessThan(120);
 
       const [integration] = await db.select<{ last_error: string | null; active: boolean }>(
         `integrations?select=last_error,active&id=eq.${id}`,

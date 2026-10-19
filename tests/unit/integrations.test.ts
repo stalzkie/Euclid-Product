@@ -193,3 +193,42 @@ describe("statusWord", () => {
     expect(statusWord("archived")).toBe("archived");
   });
 });
+
+/**
+ * The host allow-list has to hold at the moment of the request.
+ *
+ * `validateWebhookUrl` has always run in the save action. That protects the
+ * only path that writes `config.webhook_url` today, and "today" is the whole
+ * weakness: the value is read back out of a database row much later and
+ * turned into a server-side POST, so anything that ever writes that column by
+ * another route — a backfill, a support fix, a second writer — inherits the
+ * open proxy the allow-list exists to prevent, and none of those changes
+ * would be reviewed as security.
+ *
+ * `postToWebhook` is not exported, so this asserts the property through the
+ * exported `sendTestMessage`, which is the same function with a synthetic
+ * delivery. Nothing here reaches the network: every case is refused before
+ * `fetch`.
+ */
+describe("delivery refuses a host the allow-list does not name", () => {
+  it.each([
+    ["cloud metadata", "https://169.254.169.254/latest/meta-data/"],
+    ["an internal host", "https://localhost/hook"],
+    ["a lookalike suffix", "https://hooks.slack.com.evil.tld/services/x"],
+    ["plain http", "http://hooks.slack.com/services/x"],
+  ])("refuses %s without making a request", async (_label, url) => {
+    const { sendTestMessage } = await import("@/server/integrations");
+    const result = await sendTestMessage("slack", url, "Driftnote", "https://example.com/b/x");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/Refusing to deliver/);
+  });
+
+  it("still accepts the real thing, so the guard is not simply refusing everything", () => {
+    // The counterpart to the cases above: a genuine Slack URL passes the same
+    // check. Without this, a guard that returned false unconditionally would
+    // satisfy every assertion above.
+    const check = validateWebhookUrl("slack", "https://hooks.slack.com/services/T0/B0/xyz");
+    expect(check.ok).toBe(true);
+  });
+});

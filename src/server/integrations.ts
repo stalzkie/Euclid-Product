@@ -3,6 +3,7 @@ import {
   chatPayload,
   issueContent,
   parseRepo,
+  validateWebhookUrl,
   type IntegrationEvent,
   type IntegrationKind,
   type PostEventData,
@@ -140,8 +141,32 @@ async function postToWebhook(
     return { ok: false, error: `${delivery.kind} is not a chat integration.` };
   }
 
+  /*
+    Re-check the host here, not only where the founder typed it.
+
+    `validateWebhookUrl` runs in the save action, which is the only path that
+    writes `config.webhook_url` today — so this is redundant today and that is
+    the point. The check guards a server-side request to an address held in a
+    database row, and the reason it exists at all (see WEBHOOK_HOSTS) is that
+    such a request reaches cloud metadata endpoints and everything else on the
+    network. "Only one code path writes this column" is true until a backfill,
+    a support fix or a second writer makes it false, and none of those would
+    look like a security change.
+
+    Validating where the request is made rather than where the value arrives
+    means it cannot be bypassed by writing the row some other way.
+  */
+  const checked = validateWebhookUrl(delivery.kind, url);
+  if (!checked.ok) {
+    return { ok: false, error: `Refusing to deliver: ${checked.error}` };
+  }
+
   try {
-    const response = await fetch(url, {
+    // `checked.url`, not `url`. Validating one string and requesting another
+    // is how a check like this gets walked past: the two only agree while
+    // both are parsed identically, and the normalised form is the one that
+    // was actually inspected.
+    const response = await fetch(checked.url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(chatPayload(delivery.kind, delivery.event, delivery.payload)),
