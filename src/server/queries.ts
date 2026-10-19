@@ -551,3 +551,40 @@ export async function getVotesByPlan(boardId: string): Promise<{ plan: string; v
     votes: Number(r.votes),
   }));
 }
+
+/**
+ * The three counts the setup checklist cannot derive from the context it
+ * already has.
+ *
+ * Head requests with `count: "exact"`, so none of them transfer a row — the
+ * question is only ever "is there at least one", and the checklist renders on
+ * every home page load.
+ *
+ * Changelog is counted on the workspace rather than the board because a
+ * founder with several boards has shipped something once they have shipped
+ * anything, and the step is about the habit rather than the board.
+ */
+export async function getSetupFacts(
+  workspaceId: string,
+  boardId: string,
+): Promise<{ posts: number; prompts: number; shipped: number }> {
+  const db = await supabaseServer();
+
+  const [posts, prompts, shipped] = await Promise.all([
+    db.from("posts").select("id", { count: "exact", head: true }).eq("board_id", boardId),
+    db
+      .from("build_prompts")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
+    db
+      .from("changelog_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
+  ]);
+
+  return {
+    posts: posts.count ?? 0,
+    prompts: prompts.count ?? 0,
+    shipped: shipped.count ?? 0,
+  };
+}

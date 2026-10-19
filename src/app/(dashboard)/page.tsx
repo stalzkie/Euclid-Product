@@ -14,12 +14,16 @@ import {
   StatusChip,
 } from "@/components/ui";
 import { Stagger } from "@/components/motion";
+import { SetupChecklist } from "@/components/setup-checklist";
+import { setupSteps, showSetup } from "@/lib/setup";
+import { dismissSetup } from "./setup-actions";
 import { ago, greeting, signedPct } from "@/lib/format";
 import { requireFounder } from "@/server/context";
 import {
   getActivity,
   getMergeQueueCount,
   getRecommendation,
+  getSetupFacts,
   getWeekKpis,
   listPosts,
   listThemes,
@@ -30,14 +34,32 @@ export default async function HomePage() {
   const ctx = await requireFounder();
   const board = ctx.board;
 
-  const [kpis, top, activity, rec, themes, dupes] = await Promise.all([
+  const [kpis, top, activity, rec, themes, dupes, setup] = await Promise.all([
     getWeekKpis(board.id),
     listPosts(board.id, { limit: 5 }),
     getActivity(ctx.workspace.id, 4),
     getRecommendation(board.id),
     listThemes(board.id),
     getMergeQueueCount(board.id),
+    getSetupFacts(ctx.workspace.id, board.id),
   ]);
+
+  /*
+    What is still unset up, derived rather than stored — see src/lib/setup.ts.
+
+    Hidden once every step is done, so finishing it is the dismissal, and
+    hidden when the founder closes it early.
+  */
+  const steps = setupSteps({
+    hasProfile: (ctx.profile?.stack?.length ?? 0) > 0 || Boolean(ctx.workspace.app_url),
+    installed: board.installed_at !== null,
+    domainsLocked: board.allowed_domains.length > 0,
+    hasPosts: setup.posts > 0,
+    hasPrompt: setup.prompts > 0,
+    hasShipped: setup.shipped > 0,
+  });
+
+  const checklistVisible = showSetup(steps, ctx.workspace.setup_dismissed_at);
 
   const rising = themes.filter((t) => t.growth > 0).slice(0, 3);
   const appName = ctx.workspace.app_name ?? ctx.workspace.name;
@@ -60,6 +82,8 @@ export default async function HomePage() {
           <SplitButton href="/prompts/new" label="New Build Prompt" />
         </div>
       </header>
+
+      {checklistVisible && <SetupChecklist steps={steps} onDismiss={dismissSetup} />}
 
       {/* This week */}
       <section
@@ -319,8 +343,16 @@ export default async function HomePage() {
             </section>
           )}
 
-          {/* Setup nudge until the widget has seen traffic. */}
-          {kpis.votes === 0 && top.length === 0 && (
+          {/*
+            The lighter nudge, for when the checklist is not there.
+
+            Both used to show at once, which made the home page say "install
+            the widget" three times over — here, in the checklist, and in the
+            empty state below the KPIs. One of them is help and three is
+            nagging. The checklist is the fuller answer, so this is what a
+            founder who dismissed it still gets.
+          */}
+          {!checklistVisible && kpis.votes === 0 && top.length === 0 && (
             <section className="flex flex-col gap-[10px] rounded-[14px] border border-line px-[18px] py-4">
               <h2 className="text-[14px] font-semibold">Finish setup</h2>
               <p className="text-[13px] leading-[1.5] text-ink-3">
