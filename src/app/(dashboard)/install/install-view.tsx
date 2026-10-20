@@ -90,7 +90,17 @@ export function InstallView({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const save = () =>
+  /*
+    One save path, with an escape hatch for a caller that already knows the
+    value it just set.
+
+    React state does not update synchronously, so the install doctor's "Allow
+    this domain" button cannot call `setDomains` and then `save()` and expect
+    the save to see the new domain — it would write the list as it was a
+    moment ago and silently do nothing at all. So it passes the list it has
+    already computed, and the field and the write agree.
+  */
+  const saveWith = (overrides?: { allowedDomains?: string[] }) =>
     start(async () => {
       setError(null);
       const res = await saveBoardSettings({
@@ -98,7 +108,9 @@ export function InstallView({
         name: board.name,
         color: board.color,
         identityMode: identity,
-        allowedDomains: domains.split(/[\n,]/).map((d) => d.trim()).filter(Boolean),
+        allowedDomains:
+          overrides?.allowedDomains ??
+          domains.split(/[\n,]/).map((d) => d.trim()).filter(Boolean),
         anonVoteLimit: voteLimit,
         requireApproval: approval,
         categories: categories.split(",").map((c) => c.trim()).filter(Boolean),
@@ -110,6 +122,8 @@ export function InstallView({
         setError(res.error);
       }
     });
+
+  const save = () => saveWith();
 
   const activeSnippet =
     IDENTITY_SNIPPETS.find((s) => s.id === snippet) ?? IDENTITY_SNIPPETS[0];
@@ -144,6 +158,23 @@ export function InstallView({
           stack={stack}
           allowedDomains={board.allowedDomains}
           installed={installed}
+          /*
+            The doctor's one-click fix. It writes through the same state and
+            the same action as the domains field below, so the two can never
+            disagree about what is on the list — and the founder sees the
+            domain appear in the box it came from, rather than a change that
+            happened somewhere they cannot see.
+          */
+          onAllowDomain={(host) => {
+            const next = domains
+              .split(/[\n,]/)
+              .map((d) => d.trim())
+              .filter(Boolean);
+            if (next.includes(host)) return;
+            next.push(host);
+            setDomains(next.join("\n"));
+            saveWith({ allowedDomains: next });
+          }}
         />
       </section>
 

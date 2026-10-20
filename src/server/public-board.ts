@@ -15,6 +15,7 @@ import {
   verifyJwt,
   voteWeightFor,
 } from "./identity";
+import type { InstallSignalReason } from "@/lib/install-doctor";
 import type { Board, BoardDesign, PostStatus } from "@/lib/types";
 import type { WidgetChangelog, WidgetPost } from "@/components/board-widget";
 
@@ -76,6 +77,72 @@ export async function getPublicBoard(publicId: string): Promise<PublicBoard | nu
     categories: data.categories,
     installedAt: data.installed_at ?? null,
   };
+}
+
+/**
+ * The hostname to file a diagnosis under, or null if there is nothing to file.
+ *
+ * Hostname rather than the whole origin: `https://app.driftnote.io` and
+ * `https://app.driftnote.io:443` are one broken deploy, and a founder reading
+ * the install screen is looking for a domain they recognise, not a URL.
+ */
+export function signalHost(origin: string | null): string | null {
+  if (!origin) return null;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host || null;
+  } catch {
+    // A referer that is not a URL tells us nothing worth storing.
+    return null;
+  }
+}
+
+/**
+ * Record why this request did not become an install.
+ *
+ * Failures are swallowed, exactly as `noteWidgetServed` swallows its own: this
+ * is a diagnostic, and a visitor's board must not fail to load because we
+ * could not write down a note about the founder's configuration.
+ *
+ * Awaited by its callers rather than fired off, for the reason the public
+ * board route already records — a serverless function may stop executing the
+ * moment the response is returned, and an unawaited write is then a write that
+ * sometimes happens.
+ */
+export async function noteInstallSignal(
+  boardId: string,
+  origin: string | null,
+  reason: InstallSignalReason,
+): Promise<void> {
+  const host = signalHost(origin);
+  if (!host || !hasServiceRole()) return;
+
+  const { error } = await supabaseAdmin().rpc("note_install_signal", {
+    p_board: boardId,
+    p_origin: host,
+    p_reason: reason,
+  });
+
+  if (error) console.error(`[install] signal ${reason} for ${boardId}: ${error.message}`);
+}
+
+/**
+ * Is this hostname the founder's own machine?
+ *
+ * One definition, used by both `originAllowed` and `countsAsInstall`. They
+ * were written with the same four-way check copied into each, and the comment
+ * on `countsAsInstall` already says why that is dangerous: the two *have* to
+ * agree on what loopback means, because the allow-list lets loopback past
+ * only while the board has never been served live. Two copies of a rule that
+ * must not diverge is the drift waiting to happen.
+ */
+export function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host.endsWith(".localhost")
+  );
 }
 
 /**
@@ -143,9 +210,7 @@ export function countsAsInstall(
   // Loopback is a founder still setting up, not a live install. `originAllowed`
   // depends on this: stamping here would revoke the loopback allowance that
   // let the request through in the first place.
-  if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost")) {
-    return false;
-  }
+  if (isLoopbackHost(host)) return false;
 
   const own = appHost.split(":")[0].toLowerCase();
   return host !== own && host !== `www.${own}` && `www.${host}` !== own;
@@ -234,9 +299,7 @@ export function originAllowed(board: PublicBoard, origin: string | null): boolea
     `localhost` in their allow-list, which the check above honours — saying so
     explicitly is better than a permanent hole that nobody opted into.
   */
-  const loopback =
-    host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
-  return loopback && board.installedAt === null;
+  return isLoopbackHost(host) && board.installedAt === null;
 }
 
 /* -------------------------------------------------------------------------- */

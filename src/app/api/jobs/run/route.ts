@@ -47,6 +47,11 @@ export async function POST(request: NextRequest) {
   // broken, not a thing to tidy away.
   const { data: prunedErrors } = await db.rpc("prune_error_events");
 
+  // Install diagnoses nobody has looked at in a month. Unlike an unresolved
+  // error these are safe to forget: either the install happened and the
+  // screen stopped asking, or the founder is long gone. See 0031.
+  const { data: prunedSignals } = await db.rpc("prune_install_signals");
+
   /*
     Refill the Bernn promo-code pool.
 
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest) {
     trials,
     pruned: pruned ?? 0,
     prunedErrors: prunedErrors ?? 0,
+    prunedSignals: prunedSignals ?? 0,
     partner,
   });
 }

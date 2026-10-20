@@ -7,12 +7,25 @@ import { Banner, SectionTitle, cx } from "./ui";
 import { CopyIconButton, Segmented } from "./controls";
 import { InstallPing } from "./install-ping";
 import { FRAMEWORKS, agentInstallPrompt, installSnippet } from "@/lib/snippets";
+import { diagnose, type InstallSignal } from "@/lib/install-doctor";
+import { plural } from "@/lib/format";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 
 /**
  * 04 · Install. The script tag, the vibe-coder shortcut, and a live check for
  * the first ping from the founder's domain.
  */
+/**
+ * "3 requests", "999+ requests".
+ *
+ * `plural` already carries the number, so this exists for the ceiling alone:
+ * past a thousand the exact count stops being information and starts being a
+ * number the reader has to parse to learn "lots".
+ */
+function requestCount(n: number): string {
+  return n > 999 ? "999+ requests" : plural(n, "request");
+}
+
 export function InstallPanel({
   boardPublicId,
   boardName,
@@ -23,6 +36,7 @@ export function InstallPanel({
   allowedDomains,
   installed,
   compact,
+  onAllowDomain,
 }: {
   boardPublicId: string;
   boardName: string;
@@ -34,10 +48,17 @@ export function InstallPanel({
   /** True once the widget has been served to a real page. */
   installed: boolean;
   compact?: boolean;
+  /**
+   * Add a hostname to the allow-list and save. Supplied by the screen that
+   * owns the domains field, so the doctor's fix writes through the same
+   * action as typing it by hand rather than a second path to the same column.
+   */
+  onAllowDomain?: (host: string) => void;
 }) {
   const [framework, setFramework] = useState("next");
   const [mode, setMode] = useState<EmbedMode>(initialMode);
   const [seen, setSeen] = useState(installed);
+  const [signals, setSignals] = useState<InstallSignal[]>([]);
 
   const code = installSnippet(framework, { boardId: boardPublicId, mode, origin });
   const agentPrompt = agentInstallPrompt({
@@ -56,26 +77,52 @@ export function InstallPanel({
   });
   const spec = FRAMEWORKS.find((f) => f.id === framework) ?? FRAMEWORKS[0];
 
-  // Poll for the first widget request from the founder's app. Stops as soon as
-  // one lands, so a successful install needs no refresh.
+  /*
+    Poll for the first widget request from the founder's app — and, while it
+    has not arrived, for the reason.
+
+    `/api/board/doctor` rather than `/api/board/installed`, which answered the
+    same boolean and nothing else. Both the install flag and the diagnosis
+    come from one request because they are one question: a founder looking at
+    a grey dot is asking "why", and two endpoints would let the dot and its
+    explanation disagree for five seconds at a time.
+
+    Runs immediately as well as on the interval. The previous version waited
+    the full five seconds before its first call, so a founder arriving at a
+    board that had been refusing requests all morning was shown "waiting" and
+    no reason, until a tick they had no way to anticipate.
+  */
   useEffect(() => {
     if (seen) return;
-    const timer = setInterval(async () => {
+    let live = true;
+
+    const check = async () => {
       try {
-        const res = await fetch(`/api/board/installed?board=${boardPublicId}`, {
+        const res = await fetch(`/api/board/doctor?board=${boardPublicId}`, {
           cache: "no-store",
         });
-        const json = (await res.json()) as { installed?: boolean };
-        if (json.installed) {
-          setSeen(true);
-          clearInterval(timer);
-        }
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          installed?: boolean;
+          signals?: InstallSignal[];
+        };
+        if (!live) return;
+        setSignals(json.signals ?? []);
+        if (json.installed) setSeen(true);
       } catch {
         // Offline or blocked; the next tick tries again.
       }
-    }, 5000);
-    return () => clearInterval(timer);
+    };
+
+    void check();
+    const timer = setInterval(check, 5000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
   }, [seen, boardPublicId]);
+
+  const diagnosis = diagnose(seen, signals);
 
   return (
     <div className={cx("flex flex-wrap items-start gap-6", compact && "gap-5")}>
@@ -148,17 +195,71 @@ export function InstallPanel({
             >
               {seen
                 ? "Your board is live. The widget has loaded from your app."
-                : `Waiting for the first ping${
-                    allowedDomains[0] ? ` from ${allowedDomains[0]}` : ""
-                  }`}
+                : diagnosis.kind === "blocked"
+                  ? "Your widget is running — and Euclid is turning it away."
+                  : diagnosis.kind === "local"
+                    ? "Working on your machine. Not live yet."
+                    : `Waiting for the first ping${
+                        allowedDomains[0] ? ` from ${allowedDomains[0]}` : ""
+                      }`}
             </span>
             <span className="text-[12px] text-ink-3">
               {seen
                 ? "Submit a test post from your own board to see the loop end to end."
-                : "Deploy, then open any page. This checks every 5 seconds."}
+                : diagnosis.kind === "silent"
+                  ? "Deploy, then open any page. This checks every 5 seconds."
+                  : "This checks every 5 seconds."}
             </span>
           </span>
         </div>
+
+        {/*
+          The install doctor.
+
+          Only ever rendered when there is something to say that the line
+          above could not: a board being refused, or one that only Euclid's
+          own author has ever loaded. Silence stays silent — a panel that
+          appears to report "nothing is wrong, we think" is noise on every
+          healthy install, and this screen already has a dot for that.
+        */}
+        {diagnosis.kind === "blocked" && (
+          <Banner
+            tone="bad"
+            icon="warn"
+            action={
+              onAllowDomain ? (
+                <button
+                  type="button"
+                  onClick={() => onAllowDomain(diagnosis.origins[0])}
+                  className="eu-press shrink-0 rounded-control border border-bad-line px-[10px] py-[5px] text-[12.5px] font-medium text-bad hover:bg-bad-wash"
+                >
+                  Allow {diagnosis.origins[0]}
+                </button>
+              ) : undefined
+            }
+          >
+            <strong className="font-semibold">
+              {diagnosis.origins.slice(0, 2).join(" and ")}
+              {diagnosis.origins.length > 2
+                ? ` and ${diagnosis.origins.length - 2} more`
+                : ""}
+            </strong>{" "}
+            {diagnosis.origins.length === 1 ? "is" : "are"} loading the widget and being
+            refused — {requestCount(diagnosis.count)} so far. The snippet is in the right
+            place;{" "}
+            {diagnosis.origins.length === 1 ? "that domain is" : "those domains are"} not on
+            the allowed list for {boardName}.
+          </Banner>
+        )}
+
+        {diagnosis.kind === "local" && (
+          <Banner tone="state" icon="info">
+            The widget is loading on{" "}
+            <strong className="font-semibold">{diagnosis.origins.join(", ")}</strong>, so
+            the snippet works. Local requests deliberately do not count as an install —
+            deploy and open any page, and this turns green.
+          </Banner>
+        )}
 
         {/* Hosted fallback */}
         <div className="flex flex-wrap items-center gap-3 rounded-control border border-line px-4 py-3">
