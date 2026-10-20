@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  INDIE3,
+  PROMO_COOKIE,
+  PROMO_COOKIE_DAYS,
   POLAR_PRODUCTS,
   autoDiscountId,
   billingEnabled,
@@ -10,6 +13,7 @@ import {
   productIdFor,
   promoDiscountId,
   promoEligible,
+  normalisePromo,
   trialDays,
 } from "@/lib/polar";
 
@@ -300,5 +304,46 @@ describe("the 4-for-3 promotion", () => {
     process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
     expect(discountForCheckout(false)).toBe("disc_launch");
+  });
+});
+
+/**
+ * The link's trip from a marketing page to a checkout.
+ *
+ * This is the half of the promotion that did not exist until 2026-10-21: the
+ * discount, the Bernn pool and the grant were all built and exercised, and
+ * nothing carried `?promo=indie3` past the sign-up redirect, so no real
+ * founder could have arrived with it. These tests are about the value
+ * surviving, not about what it buys.
+ */
+describe("normalisePromo", () => {
+  it("accepts the promotion's own id", () => {
+    expect(normalisePromo(INDIE3)).toBe(INDIE3);
+  });
+
+  it("accepts it as typed, pasted or shouted", () => {
+    // A marketing link is edited by hand more often than anyone admits.
+    expect(normalisePromo(" indie3 ")).toBe(INDIE3);
+    expect(normalisePromo("INDIE3")).toBe(INDIE3);
+  });
+
+  it("refuses anything else rather than guessing", () => {
+    // There is one promotion. An unrecognised value is a typo or a guess, and
+    // either way the founder should see list price instead of an error.
+    expect(normalisePromo("indie4")).toBeNull();
+    expect(normalisePromo("indie")).toBeNull();
+    expect(normalisePromo("true")).toBeNull();
+    expect(normalisePromo("")).toBeNull();
+    expect(normalisePromo(null)).toBeNull();
+    expect(normalisePromo(undefined)).toBeNull();
+  });
+
+  it("outlives the sign-up redirect for long enough to be used", () => {
+    // Long enough to survive signing up, a seven-day trial and a weekend of
+    // thinking about it. The exact number matters less than it being well
+    // clear of the trial, which is where the old URL-only value died.
+    // 7 is the trial every Polar product here is configured with.
+    expect(PROMO_COOKIE_DAYS).toBeGreaterThan(7);
+    expect(PROMO_COOKIE).toBe("euclid_promo");
   });
 });

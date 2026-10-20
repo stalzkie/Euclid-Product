@@ -1,9 +1,13 @@
+import { cookies } from "next/headers";
 import { Shell } from "@/components/shell";
 import { requireFounder } from "@/server/context";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
+  INDIE3,
+  PROMO_COOKIE,
   availableTopups,
   billingEnabled,
+  promoDiscountId,
   studentDiscountId,
   trialDays,
 } from "@/lib/polar";
@@ -21,6 +25,24 @@ export default async function BillingPage() {
     ctx.workspace.student_verified_at,
     new Date(),
   );
+
+  /*
+    Whether to show the launch promotion here.
+
+    Both halves have to be true: the promotion has to be configured on this
+    deployment, and this founder has to have arrived through its link — the
+    cookie the middleware wrote. It is deliberately not offered to everyone
+    who opens this page. The discount is capped at 50 redemptions and exists
+    to convert people the launch reached, so showing it to a founder who was
+    going to pay list price anyway spends the cap on them.
+
+    The cookie is only a question of what to *render*. The checkout route
+    reads it again on its own and re-derives eligibility there, so this
+    cannot grant anything.
+  */
+  const promoOffer =
+    Boolean(promoDiscountId()) &&
+    (await cookies()).get(PROMO_COOKIE)?.value === INDIE3;
 
   const { data: members } = await db
     .from("workspace_members")
@@ -76,6 +98,7 @@ export default async function BillingPage() {
           studentDiscount: Boolean(studentDiscountId()),
         }}
         bernn={partner ? { code: partner.code as string | null } : null}
+        promoOffer={promoOffer}
         studentState={{
           verified: studentVerified,
           email: ctx.workspace.student_email,

@@ -216,6 +216,35 @@ export function studentDiscountId(): string | null {
 export const INDIE3 = "indie3";
 
 /**
+ * The cookie a `?promo=` lands in, and how long it is honoured for.
+ *
+ * The promotion needs this for the same reason referrals do, and the lesson
+ * was learned there first: the link points at a page, the page bounces a
+ * signed-out visitor to `/signup`, and a parameter that lives only in the URL
+ * is gone by the time anybody could act on it. See the capture in
+ * `middleware.ts`, which writes both.
+ *
+ * Thirty days rather than the referral cookie's ninety. This one has to
+ * survive signing up, a seven-day trial and a weekend of thinking about it —
+ * not a bookmark opened next quarter — and the promotion itself will be over
+ * long before the cookie is.
+ */
+export const PROMO_COOKIE = "euclid_promo";
+export const PROMO_COOKIE_DAYS = 30;
+
+/**
+ * The promotion named by a `?promo=` value, or null.
+ *
+ * There is exactly one promotion, so this is an equality check rather than a
+ * pattern: anything else is not a promotion with a different name, it is a
+ * typo or someone guessing. Null rather than a thrown error — a bad `?promo=`
+ * should sell the plan at list price, not fail the request.
+ */
+export function normalisePromo(raw: string | null | undefined): string | null {
+  return raw?.trim().toLowerCase() === INDIE3 ? INDIE3 : null;
+}
+
+/**
  * A repeating discount: 25% off for four months, on Indie Monthly.
  *
  * $9 x 4 is $36, which is four months for the price of three. It is expressed

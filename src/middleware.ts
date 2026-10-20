@@ -7,6 +7,11 @@ import {
   REFERRAL_COOKIE_DAYS,
   normaliseCode,
 } from "@/lib/referrals";
+import {
+  PROMO_COOKIE,
+  PROMO_COOKIE_DAYS,
+  normalisePromo,
+} from "@/lib/polar";
 
 /**
  * Refreshes the Supabase session cookie on navigation and keeps signed-out
@@ -52,36 +57,57 @@ export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   /*
-    A referral code, if one came in on the URL.
+    What came in on the URL and has to outlive it: a referral code, and the
+    launch promotion.
 
     Captured here because middleware is the only place that sees the request
     before anything renders and can still set a cookie — a server component
-    cannot. It is written on every matched route rather than only on /signup,
-    since a shared link may point at any page and the sign-up redirect below
-    would otherwise drop the code on the way.
+    cannot. Both are written on every matched route rather than only on
+    /signup, since a shared link may point at any page and the sign-up
+    redirect below would otherwise drop the value on the way.
 
-    First write wins: someone who arrives through one person's link and later
-    clicks another's stays with the first. The alternative rewards whoever
-    sends the most recent link rather than whoever actually did the
-    convincing, and it lets a referrer overwrite a colleague's attribution by
-    sending a link at the right moment.
+    That last sentence was written for referrals and was true of the promotion
+    the whole time nothing carried it: `?promo=indie3` on a marketing link
+    reached `/api/billing/checkout`, which redirects a signed-out visitor to
+    /setup, and the promotion was lost with no trace — the founder paid list
+    price and no Bernn code was ever granted. Every return path below goes
+    through `carry`, which is what makes that unrepeatable.
+
+    First write wins for both. For referrals that is a fairness rule: someone
+    who arrives through one person's link and later clicks another's stays
+    with the first, so a referrer cannot overwrite a colleague's attribution
+    by sending a link at the right moment. For the promotion it barely
+    matters, since there is only one — but re-writing the cookie on every
+    visit would quietly extend its life for anyone who keeps clicking the
+    link, and the window is meant to be the window.
   */
   const incoming = normaliseCode(request.nextUrl.searchParams.get("ref"));
-  const attribute = (res: NextResponse) => {
-    if (!incoming || request.cookies.get(REFERRAL_COOKIE)) return res;
-    res.cookies.set(REFERRAL_COOKIE, incoming, {
+  const promo = normalisePromo(request.nextUrl.searchParams.get("promo"));
+  const carry = (res: NextResponse) => {
+    const cookie = {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "lax" as const,
       secure: request.nextUrl.protocol === "https:",
       path: "/",
-      maxAge: REFERRAL_COOKIE_DAYS * 24 * 60 * 60,
-    });
+    };
+    if (incoming && !request.cookies.get(REFERRAL_COOKIE)) {
+      res.cookies.set(REFERRAL_COOKIE, incoming, {
+        ...cookie,
+        maxAge: REFERRAL_COOKIE_DAYS * 24 * 60 * 60,
+      });
+    }
+    if (promo && !request.cookies.get(PROMO_COOKIE)) {
+      res.cookies.set(PROMO_COOKIE, promo, {
+        ...cookie,
+        maxAge: PROMO_COOKIE_DAYS * 24 * 60 * 60,
+      });
+    }
     return res;
   };
 
   // Before the envs are wired up, let everything through so the app can
   // render its own setup notice.
-  if (!url || !anon) return attribute(response);
+  if (!url || !anon) return carry(response);
 
   const supabase = createServerClient(url, anon, {
     cookies: {
@@ -115,10 +141,10 @@ export async function middleware(request: NextRequest) {
     const to = request.nextUrl.clone();
     to.pathname = "/signup";
     to.searchParams.set("next", path);
-    return attribute(NextResponse.redirect(to));
+    return carry(NextResponse.redirect(to));
   }
 
-  return attribute(response);
+  return carry(response);
 }
 
 export const config = {

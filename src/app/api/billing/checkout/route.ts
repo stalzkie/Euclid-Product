@@ -4,6 +4,7 @@ import { requireFounder } from "@/server/context";
 import { polar } from "@/server/billing";
 import {
   INDIE3,
+  PROMO_COOKIE,
   billingEnabled,
   discountForCheckout,
   productIdFor,
@@ -75,10 +76,26 @@ export async function GET(request: NextRequest) {
   // reading the result.
   const student = studentVerificationActive(ctx.workspace.student_verified_at, new Date());
 
-  // Eligibility is re-checked here and not trusted from the query string: the
-  // link only says what the founder asked for, and `promoEligible` decides
-  // whether this plan and period may actually have it.
-  const promo = parsed.data.promo === INDIE3 && promoEligible(tier, period);
+  /*
+    Whether this checkout carries the promotion.
+
+    Two ways in, either of which is enough: `?promo=indie3` on this request,
+    or the cookie the middleware wrote when the founder first arrived through
+    the promotion's link. The cookie is what makes the promise survivable —
+    a founder clicks the link, signs up, trials for a week and upgrades from
+    the billing page, and the only request carrying the parameter was the
+    first one. Reading it here rather than relying on the upgrade button to
+    re-attach the parameter means the promise does not depend on every future
+    caller remembering to pass it along.
+
+    Eligibility is still re-derived and never trusted from either source: the
+    link and the cookie only say what the founder asked for, and
+    `promoEligible` decides whether this plan and period may actually have
+    it. So `?tier=pro&promo=indie3` still buys Pro at list price.
+  */
+  const asked =
+    parsed.data.promo === INDIE3 || request.cookies.get(PROMO_COOKIE)?.value === INDIE3;
+  const promo = asked && promoEligible(tier, period);
   const discount = discountForCheckout(student, promo);
 
   try {

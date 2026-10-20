@@ -8,6 +8,7 @@ import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui"
 import { Segmented, Spinner } from "@/components/controls";
 import { useToast } from "@/components/motion";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
+import { INDIE3 } from "@/lib/polar";
 import { longDate } from "@/lib/format";
 import type { PlanTier } from "@/lib/types";
 import {
@@ -37,6 +38,7 @@ export function BillingView({
   founderName,
   billing,
   bernn,
+  promoOffer,
   studentState,
 }: {
   workspaceName: string;
@@ -70,6 +72,12 @@ export function BillingView({
   };
   /** The partner promotion's code, when this workspace earned one. */
   bernn: { code: string | null } | null;
+  /**
+   * Whether to offer the 4-for-3 promotion — the promotion is configured and
+   * this founder arrived through its link. Decided on the server; see the
+   * cookie note in `page.tsx`.
+   */
+  promoOffer: boolean;
   studentState: {
     verified: boolean;
     email: string | null;
@@ -101,6 +109,22 @@ export function BillingView({
 
   const current = PLANS[plan];
   const yearly = period === "yearly";
+
+  /*
+    When to show the promotion on this page.
+
+    Only to a workspace on Free: the discount allows one redemption per
+    customer, so dangling it in front of someone who already subscribed
+    promises something Polar would refuse at checkout.
+
+    And only while the toggle is on Monthly, because that is the only thing
+    the promotion covers. Switching to Yearly takes the offer off the Indie
+    card rather than letting it look as though it carries over —
+    `promoEligible` refuses it there on the server, and an offer the checkout
+    then contradicts is worse than no offer.
+  */
+  const promoLive = promoOffer && plan === "free";
+  const promoOn = (tier: PlanTier) => promoLive && tier === "indie" && !yearly;
 
   const flash = (message: string) => {
     toast(message);
@@ -380,6 +404,15 @@ export function BillingView({
             />
           </div>
 
+          {promoLive && (
+            <Banner tone="ai" icon="sparkle">
+              <strong className="font-semibold">Launch offer.</strong> Indie monthly is
+              $9 a month for your first four — four months for the price of three — and
+              you get a month of Bernn Pro free once your first payment clears. Applied
+              at checkout, nothing to type.
+            </Banner>
+          )}
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {PLAN_ORDER.map((tier) => {
               const spec = PLANS[tier];
@@ -424,6 +457,12 @@ export function BillingView({
                     </span>
                   </div>
 
+                  {promoOn(tier) && (
+                    <p className="text-[12.5px] font-medium text-state">
+                      $9 / month for your first four months
+                    </p>
+                  )}
+
                   <ul className="flex flex-1 flex-col gap-2">
                     {spec.features.map((f) => (
                       <li key={f} className="flex items-start gap-2 text-[13px] text-ink-body">
@@ -455,10 +494,17 @@ export function BillingView({
                       // that makes the request. The URL is absolute for the same
                       // reason it has to be a real navigation.
                       if (billing.enabled) {
+                        // The promotion rides on the URL as well as in the
+                        // cookie the checkout route reads. Belt and braces, the
+                        // same way the Polar customer is tied to the workspace
+                        // by both `external_customer_id` and metadata: this way
+                        // the request says what it is asking for rather than
+                        // depending on an invisible cookie to mean it.
                         const path =
                           tier === "free"
                             ? "/api/billing/portal"
-                            : `/api/billing/checkout?tier=${tier}&period=${period}`;
+                            : `/api/billing/checkout?tier=${tier}&period=${period}` +
+                              (promoOn(tier) ? `&promo=${INDIE3}` : "");
                         window.location.assign(new URL(path, window.location.origin));
                         return;
                       }
