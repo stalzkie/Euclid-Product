@@ -5,7 +5,7 @@ import { PLANS } from "@/lib/plans";
 import type { FounderContext } from "@/server/context";
 import { BoardSwitcher } from "./board-switcher";
 import { SidebarNav, NotificationDot, RailHeading, type NavRow } from "./sidebar-nav";
-import { RailLabel, RailOnlyWide, RailToggle } from "./sidebar-rail";
+import { RailLabel, RailOnlyNarrow, RailOnlyWide, RailToggle } from "./sidebar-rail";
 
 export type NavKey =
   | "home"
@@ -78,7 +78,16 @@ export function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className="flex h-full min-h-screen w-full flex-col gap-[2px] overflow-hidden border-r border-line bg-subtle px-3 pb-3 pt-[14px]"
+      /*
+        `lg:min-h-0` releases the screen-tall floor so the nav is exactly as
+        tall as the pinned rail, and `lg:overflow-y-auto` gives it somewhere to
+        put the overflow when it is not: a founder with enough boards can make
+        this list longer than the viewport, and the plain `overflow-hidden`
+        that clips labels through the collapse animation would simply cut the
+        bottom of the nav off with no way to reach it. Horizontal stays hidden,
+        which is the half the animation needs.
+      */
+      className="flex h-full min-h-screen w-full flex-col gap-[2px] overflow-hidden border-r border-line bg-subtle px-3 pb-3 pt-[14px] lg:min-h-0 lg:overflow-y-auto"
     >
       <div className="flex items-center justify-between px-1 pb-[10px]">
         <Link href="/" className="flex items-center gap-2 text-ink no-underline">
@@ -197,27 +206,53 @@ export function Sidebar({
             <Icon name="bell" size={16} />
             <NotificationDot show />
           </Link>
-          {/*
-            Signing out. A plain form rather than a link or a click handler:
-            `/auth/signout` is POST only — it has to be, since a GET that
-            destroys a session can be triggered by any image tag on any page —
-            and this keeps it working with no client JavaScript at all.
-
-            The route has existed since the beginning and nothing ever linked
-            to it, so until now a founder could not sign out of the product.
-          */}
-          <form action="/auth/signout" method="post">
-            <button
-              type="submit"
-              aria-label="Sign out"
-              title="Sign out"
-              className="eu-press flex h-7 w-7 items-center justify-center rounded-[7px] text-ink-2 hover:bg-muted"
-            >
-              <Icon name="external" size={16} />
-            </button>
-          </form>
+          <SignOutButton />
         </RailOnlyWide>
       </div>
+
+      {/*
+        The same button again, under the avatar, when the rail is narrow.
+
+        Everything else `RailOnlyWide` drops at 56px has somewhere else to be
+        found — the meter is on the billing page, the labels are on their own
+        rows. Signing out had nowhere: it lives in this corner and nowhere
+        else in the product, so hiding it at 56px did not condense the rail,
+        it removed the ability to sign out from anyone who likes it collapsed.
+
+        Stacked rather than squeezed into the avatar's row, which has 56px to
+        work with and already holds a 26px avatar.
+      */}
+      <RailOnlyNarrow>
+        <div className="flex justify-center pt-[10px]">
+          <SignOutButton />
+        </div>
+      </RailOnlyNarrow>
     </nav>
+  );
+}
+
+/**
+ * Signing out. A plain form rather than a link or a click handler:
+ * `/auth/signout` is POST only — it has to be, since a GET that destroys a
+ * session can be triggered by any image tag on any page — and this keeps it
+ * working with no client JavaScript at all.
+ *
+ * The route has existed since the beginning and nothing ever linked to it, so
+ * for a long time a founder could not sign out of the product at all. It is a
+ * component rather than markup in two places so that cannot half-happen
+ * again: the wide rail and the narrow one render the same button.
+ */
+function SignOutButton() {
+  return (
+    <form action="/auth/signout" method="post">
+      <button
+        type="submit"
+        aria-label="Sign out"
+        title="Sign out"
+        className="eu-press flex h-7 w-7 items-center justify-center rounded-[7px] text-ink-2 hover:bg-muted"
+      >
+        <Icon name="external" size={16} />
+      </button>
+    </form>
   );
 }

@@ -95,6 +95,22 @@ export function SidebarRail({ children }: { children: ReactNode }) {
         data-collapsed={collapsed || undefined}
         className={cx(
           "flex max-w-full flex-col",
+          /*
+            Pinned to the viewport from `lg` up, which is where the rail is a
+            column beside the page rather than a block stacked above it.
+
+            `self-start` is the load-bearing half. A flex item stretches to the
+            height of its line by default, so the rail was as tall as whatever
+            the main column happened to be — on a long page its footer sat at
+            the bottom of the *document*, and signing out meant scrolling past
+            everything to reach it. Without `self-start` the explicit height is
+            overridden by the stretch and `sticky` has no slack to move in.
+
+            Below `lg` the shell wraps and the rail is full width above the
+            content, where pinning it would hold a screen-tall block over the
+            page. So none of this applies there.
+          */
+          "lg:sticky lg:top-0 lg:h-dvh lg:self-start",
           collapsed ? "lg:max-w-[56px] lg:flex-[1_1_56px]" : "lg:max-w-[248px] lg:flex-[1_1_248px]",
         )}
       >
@@ -141,6 +157,20 @@ export function RailLabel({
 export function RailOnlyWide({ children }: { children: ReactNode }) {
   const { collapsed } = useContext(RailContext);
   if (collapsed) return null;
+  return children;
+}
+
+/**
+ * The inverse: only at 56px.
+ *
+ * For the handful of things that cannot simply be dropped from the rail. A
+ * meter is noise without its label, but a control that is the only way to do
+ * something has to go somewhere — so it moves rather than disappears, and
+ * this is where it moves to.
+ */
+export function RailOnlyNarrow({ children }: { children: ReactNode }) {
+  const { collapsed } = useContext(RailContext);
+  if (!collapsed) return null;
   return children;
 }
 
