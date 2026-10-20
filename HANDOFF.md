@@ -230,6 +230,17 @@ stands up Supabase. It found two real widget bugs on its first run; see
 **0. The short list, as of 2026-10-20.** Everything below this is background
 on how each piece got to where it is; these are the things nobody has done.
 
+- **The install doctor is live** as of 2026-10-21 — `0031` applied to
+  production, both signals exercised against it. What is *not* done: nothing
+  reports a snippet blocked by a Content-Security-Policy, because that request
+  never reaches us at all. That one needs the widget script to say so, not the
+  server.
+- **euclidhq.com still has no promo link.** The app side is done as of
+  2026-10-21 — `?promo=indie3` is captured into a cookie that survives the
+  sign-up redirect, the billing page offers it, and a production quote prices
+  Indie monthly at $9. But the marketing site is a separate project, and
+  until a button there points at `app.euclidhq.com/signup?promo=indie3` the
+  only way to reach the promotion is to type the URL. See `ROADMAP.md` §1.
 - **Send one real e-mail.** `EMAIL_FROM`, `EMAIL_REPLY_TO` and
   `EMAIL_SIGN_OFF` are set and deployed but are the only configuration not
   confirmed by its effect — that needs a send. `node scripts/send-test.mjs`

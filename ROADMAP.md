@@ -17,6 +17,64 @@ student verification email, the `load` rate-limit bucket.
 
 ---
 
+## 0 · Install doctor — why an install did not happen
+
+Added 2026-10-21. `0031_install_signals.sql`, applied to production the same
+day and exercised end to end against it.
+
+The install screen could say "yes" or "still waiting", and "still waiting" was
+the same message for three different situations: a snippet never pasted, a
+snippet pasted into a file that never runs, and a snippet running perfectly
+and being refused by the allow-list on every single load. The third is the one
+that matters, and the information to report it was already being computed one
+line earlier and thrown away — the 403 went to the visitor's browser console,
+which is the one audience that cannot act on it.
+
+Two things are now recorded, aggregated by (board, origin, reason) so a loop
+refused four hundred times is one row with a count:
+
+- `blocked` — refused by the allow-list. Names the origin, counts the
+  attempts, and offers a one-click "Allow <domain>" that writes through the
+  same action as typing it into the domains field by hand.
+- `local` — served to loopback while the board has never been served live.
+  `countsAsInstall` refuses loopback deliberately and `originAllowed` leans on
+  it doing so, so a founder watching their widget work on localhost was
+  simultaneously told it had never been seen. Correct, and baffling without a
+  sentence.
+
+`blocked` outranks `local` when both are true: a founder developing locally
+while their staging domain is refused is in both states, and reassurance that
+hides a fault is worse than no message.
+
+### Decisions worth keeping
+
+- **The read is authenticated; the old poll was not.** `/api/board/installed`
+  answers a bare boolean for any public board id and needs no session, which
+  is fine for a boolean. This answers with hostnames, and the board's public
+  id is in the snippet on the founder's own site — serving it to that audience
+  would turn a public identifier into a list of the founder's infrastructure.
+  `/api/board/doctor` requires a session and matches the board against the
+  founder's own list rather than trusting the id in the request.
+- **A cap, not an unbounded insert.** `note_install_signal` keeps at most ten
+  distinct origins per board. The endpoint that writes it is reachable by
+  anyone with the public id, so without a ceiling a loop varying the `Origin`
+  header writes a row per request forever.
+- **`isLoopbackHost` is now one function.** It was the same four-way check
+  copied into `originAllowed` and `countsAsInstall`, two functions whose own
+  comments say they must agree about what loopback means.
+
+### Verified on production, 2026-10-21
+
+Against the live project, on a seeded board, then reverted: three loopback
+requests produced one `local` row with count 3; two requests from
+`staging.driftnote.io` against a locked-down board produced `403` and one
+`blocked` row with count 2; the install screen diagnosed the refusal and
+suppressed the localhost note; one click on "Allow staging.driftnote.io" wrote
+the domain and the identical request then returned `200`. Board state, the
+test rows and the board cookie were all restored afterwards.
+
+---
+
 ## 1 · Partner promo — "4 months for the price of 3"
 
 Subscribe to Indie monthly through the promo link and get 25% off for four
@@ -49,6 +107,44 @@ the subscription keeps renewing at $12 afterwards instead of ending.
       `after()` on the webhook when the pool was dry.
 
 ### Left
+
+- [x] **The link had nowhere to come from, and now does. 2026-10-21.**
+      Every piece above was built, exercised and ticked, and none of them
+      could ever have fired for a real founder: nothing in the app or on the
+      marketing site carried `?promo=indie3`. The upgrade button built
+      `?tier=&period=` and no more, `/api/billing/checkout` redirects a
+      signed-out visitor to `/setup`, and the parameter died there. The
+      end-to-end run on 2026-10-19 missed it because it entered the funnel at
+      the order, with `metadata.promo` already set — one step past the hole.
+
+      Fixed the way referrals already were, which is the part worth
+      remembering: `middleware.ts` captures `?promo=` into a 30-day cookie on
+      every matched route, because the sign-up redirect is what eats a value
+      that lives only in the URL. That comment was already in the file, next
+      to `?ref=`, describing this exact failure for the other mechanism.
+
+      - `PROMO_COOKIE`, `PROMO_COOKIE_DAYS`, `normalisePromo` in `polar.ts`.
+      - The checkout route accepts either the parameter or the cookie, and
+        re-derives eligibility from neither — so the cookie cannot buy Pro.
+      - The billing page offers it only to a workspace on Free that arrived
+        through the link, since the 50-redemption cap should not be spent on
+        someone who would have paid list price.
+
+      Verified against production Polar on 2026-10-21, by quote and without
+      spending anything: Indie monthly **$12 → −$3 → $9**, "Launch 4-for-3
+      (−25%) Until Feb 28, 2027" — which is four monthly periods from the
+      trial's end on Oct 28, so the trial analysis below is confirmed from a
+      second direction. Pro monthly carrying the same cookie *and* an
+      explicit `?promo=indie3` quoted $29 − 20% = $23.20 on the launch
+      discount, and Indie yearly $100 − 20% = $80. The guard holds on both
+      axes, which matters more than it did before: the cookie makes every
+      checkout by that founder "ask", so `promoEligible` is now load-bearing
+      rather than belt-and-braces.
+
+      Still outstanding: **euclidhq.com has no link either.** The marketing
+      site is a separate project and the button there has to point at
+      `app.euclidhq.com/signup?promo=indie3` for any of this to reach a
+      human.
 
 - [x] **Verified live on 2026-10-20.** A checkout quote against the
       production API returns Indie Monthly at `$12.00` list and `$9.00` with
