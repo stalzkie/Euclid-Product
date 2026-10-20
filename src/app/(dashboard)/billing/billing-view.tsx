@@ -291,12 +291,16 @@ export function BillingView({
                         current.name
                       } until then`
                     : trialing
-                      ? `Trial ends ${longDate(billingDate.toISOString())} · $${
-                          billingPeriod === "yearly" ? current.yearly : current.monthly
-                        } a month after that`
-                      : `$${
-                          billingPeriod === "yearly" ? current.yearly : current.monthly
-                        } a month · renews ${longDate(billingDate.toISOString())}`}
+                      ? `Trial ends ${longDate(billingDate.toISOString())} · ${
+                          billingPeriod === "yearly"
+                            ? `$${current.yearly} a year`
+                            : `$${current.monthly} a month`
+                        } after that`
+                      : `${
+                          billingPeriod === "yearly"
+                            ? `$${current.yearly} a year`
+                            : `$${current.monthly} a month`
+                        } · renews ${longDate(billingDate.toISOString())}`}
               </span>
             </div>
             {/*
@@ -375,7 +379,7 @@ export function BillingView({
               onChange={setPeriod}
               options={[
                 { value: "monthly", label: "Monthly" },
-                { value: "yearly", label: "Yearly · 2 months free" },
+                { value: "yearly", label: "Yearly · save 31%" },
               ]}
             />
           </div>
@@ -419,7 +423,7 @@ export function BillingView({
                       {price === 0
                         ? "forever"
                         : yearly
-                          ? "/ mo, billed yearly"
+                          ? `a year, or $${spec.yearlyPerMonth} a month`
                           : "/ month"}
                     </span>
                   </div>
