@@ -241,29 +241,34 @@ on how each piece got to where it is; these are the things nobody has done.
   Indie monthly at $9. But the marketing site is a separate project, and
   until a button there points at `app.euclidhq.com/signup?promo=indie3` the
   only way to reach the promotion is to type the URL. See `ROADMAP.md` §1.
-- **The waitlist month works, and is not deployed.** As of 2026-10-21 the
-  whole path is built and was walked end to end on localhost against
-  *production* Polar and Supabase: the Polar discount exists (`Waitlist free
-  month`, `672c3da6-b093-4481-aa0d-60f7a6d3db2b`, -100% repeating over 1
-  month on Indie Monthly, capped at 25 redemptions and 1 per customer,
-  codeless), `?promo=waitlist` survives the sign-up redirect, the billing
-  page offers it, and a live checkout quote prices Indie Monthly at **$0 due
-  today, $0 after the trial** against $12 list. `node
-  scripts/check-waitlist-promo.mjs` re-proves all of it in one run.
+- **The waitlist month is live and has been sent.** As of 2026-10-21 the whole
+  path is deployed and was walked end to end against production: the Polar
+  discount (`Waitlist free month`, `672c3da6-b093-4481-aa0d-60f7a6d3db2b`,
+  -100% repeating over one month on Indie Monthly, 25 redemptions, 1 per
+  customer, codeless, **ends 2026-11-19T16:00Z**), `POLAR_DISCOUNT_WAITLIST`
+  on Vercel production, `?promo=waitlist` captured into a cookie that survives
+  the sign-up redirect, the billing page offering it, and a live checkout
+  quote pricing Indie Monthly at **$0 due today and $0 after the trial**
+  against $12 list. `node scripts/check-waitlist-promo.mjs` re-proves all of
+  it in one run, including that a stranger and a `%@%` wildcard are both
+  refused the month.
 
-  Three things are **not** done. `POLAR_DISCOUNT_WAITLIST` is in `.env.local`
-  but **not on Vercel**, so production currently sells those founders Indie
-  at list price — the variable, then a deploy. The discount has **no
-  `Ends at`**, while the e-mail says the link is good for 30 days; set it in
-  Polar when the campaign actually goes out, or the sentence is untrue in
-  either direction. And nothing **sends** this to the waitlist yet: the
-  e-mail exists (`src/lib/emails/waitlist-offer.ts`) and
-  `scripts/send-waitlist-offer.mjs` sends it to one address at a time, which
-  is all seven rows need, but no job reads `waitlist_signups` and no column
-  records who was written to.
+  **All seven waitlist addresses were written to on 2026-10-21** — queued into
+  `email_outbox` as `kind = 'waitlist_offer'` and drained through
+  `/api/jobs/run`: 7 sent, 0 failed. That kind is also the record of who has
+  been written to, which is why `send-waitlist-campaign.mjs` can be re-run and
+  does nothing at all. There is no `claimed_at` anywhere, deliberately:
+  `waitlist_signups` is the marketing site's table and this app reads it
+  without ever writing to it. What bounds redemption is Polar — 25 total, one
+  per customer — plus the fact that a workspace already subscribed cannot
+  check out again.
 
-  Note what the checkout page says: Polar asks for a **payment method** even
-  at $0 due today. The e-mail does not claim otherwise and must not start to.
+  Two things are worth knowing rather than doing. The e-mail's expiry line is
+  **computed from the discount's `ends_at`**, not typed, so the copy cannot
+  drift from what Polar will honour — and the campaign refuses to send at all
+  if the discount has no end date, because that is the one claim in the e-mail
+  nothing else can check. And Polar asks for a **payment method** even at $0
+  due today; the e-mail does not claim otherwise and must not start to.
 
 - **Send one real e-mail — done, 2026-10-21.** Two real sends through Resend,
   both `200`, to `dstalingrad@gmail.com`: the waitlist offer, which is also
