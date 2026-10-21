@@ -11,6 +11,7 @@ import {
   PROMO_COOKIE,
   PROMO_COOKIE_DAYS,
   normalisePromo,
+  shouldWritePromo,
 } from "@/lib/polar";
 
 /**
@@ -73,13 +74,30 @@ export async function middleware(request: NextRequest) {
     price and no Bernn code was ever granted. Every return path below goes
     through `carry`, which is what makes that unrepeatable.
 
-    First write wins for both. For referrals that is a fairness rule: someone
-    who arrives through one person's link and later clicks another's stays
-    with the first, so a referrer cannot overwrite a colleague's attribution
-    by sending a link at the right moment. For the promotion it barely
-    matters, since there is only one — but re-writing the cookie on every
-    visit would quietly extend its life for anyone who keeps clicking the
-    link, and the window is meant to be the window.
+    First write wins for referrals. That is a fairness rule: someone who
+    arrives through one person's link and later clicks another's stays with
+    the first, so a referrer cannot overwrite a colleague's attribution by
+    sending a link at the right moment.
+
+    The promotion is not the same rule, and the sentence that used to be here
+    said why without noticing: "it barely matters, since there is only one".
+    There are two now, and it matters. A founder on the waitlist who had
+    clicked a 4-for-3 link at any point in the previous thirty days opened
+    their free-month e-mail, arrived with `?promo=waitlist`, and was shown
+    the launch offer — the cookie still said `indie3` and first-write-wins
+    kept it there. The e-mail promised a month at zero and the billing page
+    offered 25% off, which is the one failure this capture exists to prevent.
+
+    So: a *different* promotion overwrites, and the same one does not. The
+    first half honours the most recent thing the founder was actually
+    promised, which is what the link they just clicked says. The second half
+    keeps the original reason intact — re-writing on every visit would
+    quietly extend the window for anyone who keeps clicking the same link,
+    and the window is meant to be the window.
+
+    The rule itself is `shouldWritePromo`, in polar.ts, so that it can be
+    stated once and tested. It lived here as a condition and was wrong for a
+    day without anything noticing.
   */
   const incoming = normaliseCode(request.nextUrl.searchParams.get("ref"));
   const promo = normalisePromo(request.nextUrl.searchParams.get("promo"));
@@ -96,7 +114,7 @@ export async function middleware(request: NextRequest) {
         maxAge: REFERRAL_COOKIE_DAYS * 24 * 60 * 60,
       });
     }
-    if (promo && !request.cookies.get(PROMO_COOKIE)) {
+    if (promo && shouldWritePromo(request.cookies.get(PROMO_COOKIE)?.value, promo)) {
       res.cookies.set(PROMO_COOKIE, promo, {
         ...cookie,
         maxAge: PROMO_COOKIE_DAYS * 24 * 60 * 60,

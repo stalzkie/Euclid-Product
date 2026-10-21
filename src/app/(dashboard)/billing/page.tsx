@@ -3,15 +3,17 @@ import { Shell } from "@/components/shell";
 import { requireFounder } from "@/server/context";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
-  INDIE3,
   PROMO_COOKIE,
   availableTopups,
   billingEnabled,
+  normalisePromo,
   promoDiscountId,
+  promoRequiresWaitlist,
   studentDiscountId,
   trialDays,
 } from "@/lib/polar";
 import { studentVerificationActive, studentVerificationExpiry } from "@/lib/student";
+import { onWaitlist } from "@/server/waitlist";
 import { BillingView } from "./billing-view";
 
 /** 14 · Plan and credits, plus the workspace settings nav around it. */
@@ -27,22 +29,31 @@ export default async function BillingPage() {
   );
 
   /*
-    Whether to show the launch promotion here.
+    Which promotion, if any, to show on this page.
 
-    Both halves have to be true: the promotion has to be configured on this
-    deployment, and this founder has to have arrived through its link — the
-    cookie the middleware wrote. It is deliberately not offered to everyone
-    who opens this page. The discount is capped at 50 redemptions and exists
-    to convert people the launch reached, so showing it to a founder who was
-    going to pay list price anyway spends the cap on them.
+    Every half has to be true: a promotion has to be named by the cookie the
+    middleware wrote when this founder arrived through its link, it has to be
+    configured on this deployment, and — for the waitlist month — the signed-in
+    address has to actually be on the waitlist. It is deliberately not offered
+    to everyone who opens this page: the discounts are capped, and showing one
+    to a founder who was going to pay list price anyway spends the cap on them.
 
-    The cookie is only a question of what to *render*. The checkout route
-    reads it again on its own and re-derives eligibility there, so this
-    cannot grant anything.
+    This is only a question of what to *render*. The checkout route reads the
+    cookie again and re-derives all of it, including the waitlist lookup, so
+    nothing here can grant anything.
+
+    The waitlist check is the one piece that costs a query, and it is the
+    reason this is resolved here rather than in the view: a client component
+    cannot ask the database whether the person reading it is owed a free
+    month.
   */
-  const promoOffer =
-    Boolean(promoDiscountId()) &&
-    (await cookies()).get(PROMO_COOKIE)?.value === INDIE3;
+  const cookiePromo = normalisePromo((await cookies()).get(PROMO_COOKIE)?.value);
+  const promo =
+    cookiePromo &&
+    Boolean(promoDiscountId(cookiePromo)) &&
+    (!promoRequiresWaitlist(cookiePromo) || (await onWaitlist(ctx.email)))
+      ? cookiePromo
+      : null;
 
   const { data: members } = await db
     .from("workspace_members")
@@ -98,7 +109,7 @@ export default async function BillingPage() {
           studentDiscount: Boolean(studentDiscountId()),
         }}
         bernn={partner ? { code: partner.code as string | null } : null}
-        promoOffer={promoOffer}
+        promo={promo}
         studentState={{
           verified: studentVerified,
           email: ctx.workspace.student_email,

@@ -8,7 +8,7 @@ import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui"
 import { Segmented, Spinner } from "@/components/controls";
 import { useToast } from "@/components/motion";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
-import { INDIE3 } from "@/lib/polar";
+import { INDIE3, WAITLIST, type Promo } from "@/lib/polar";
 import { longDate } from "@/lib/format";
 import type { PlanTier } from "@/lib/types";
 import {
@@ -38,7 +38,7 @@ export function BillingView({
   founderName,
   billing,
   bernn,
-  promoOffer,
+  promo,
   studentState,
 }: {
   workspaceName: string;
@@ -73,11 +73,10 @@ export function BillingView({
   /** The partner promotion's code, when this workspace earned one. */
   bernn: { code: string | null } | null;
   /**
-   * Whether to offer the 4-for-3 promotion — the promotion is configured and
-   * this founder arrived through its link. Decided on the server; see the
-   * cookie note in `page.tsx`.
+   * The promotion to offer, or null. Resolved on the server: configured,
+   * arrived-through, and — for the waitlist month — owed to this address.
    */
-  promoOffer: boolean;
+  promo: Promo | null;
   studentState: {
     verified: boolean;
     email: string | null;
@@ -123,7 +122,7 @@ export function BillingView({
     `promoEligible` refuses it there on the server, and an offer the checkout
     then contradicts is worse than no offer.
   */
-  const promoLive = promoOffer && plan === "free";
+  const promoLive = promo !== null && plan === "free";
   const promoOn = (tier: PlanTier) => promoLive && tier === "indie" && !yearly;
 
   const flash = (message: string) => {
@@ -404,12 +403,28 @@ export function BillingView({
             />
           </div>
 
-          {promoLive && (
+          {promoLive && promo === INDIE3 && (
             <Banner tone="ai" icon="sparkle">
               <strong className="font-semibold">Launch offer.</strong> Indie monthly is
               $9 a month for your first four — four months for the price of three — and
               you get a month of Bernn Pro free once your first payment clears. Applied
               at checkout, nothing to type.
+            </Banner>
+          )}
+
+          {/*
+            The waitlist month. Said as what it is rather than as a discount
+            percentage, and the renewal is in the same sentence: the e-mail
+            that sends people here promises "$0 now, $12 after", and a page
+            that quietly dropped the second half would be the version nobody
+            trusts.
+          */}
+          {promoLive && promo === WAITLIST && (
+            <Banner tone="ai" icon="sparkle">
+              <strong className="font-semibold">Your waitlist month.</strong> Your first
+              month of Indie monthly is on us, applied at checkout with nothing to type.
+              It renews at $12 a month after that, and you can cancel any time before it
+              does.
             </Banner>
           )}
 
@@ -459,7 +474,9 @@ export function BillingView({
 
                   {promoOn(tier) && (
                     <p className="text-[12.5px] font-medium text-state">
-                      $9 / month for your first four months
+                      {promo === WAITLIST
+                        ? "$0 for your first month, then $12"
+                        : "$9 / month for your first four months"}
                     </p>
                   )}
 
@@ -504,7 +521,7 @@ export function BillingView({
                           tier === "free"
                             ? "/api/billing/portal"
                             : `/api/billing/checkout?tier=${tier}&period=${period}` +
-                              (promoOn(tier) ? `&promo=${INDIE3}` : "");
+                              (promoOn(tier) ? `&promo=${promo}` : "");
                         window.location.assign(new URL(path, window.location.origin));
                         return;
                       }

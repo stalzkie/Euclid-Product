@@ -3,16 +3,19 @@ import { z } from "zod";
 import { requireFounder } from "@/server/context";
 import { polar } from "@/server/billing";
 import {
-  INDIE3,
   PROMO_COOKIE,
+  PROMO_SLUGS,
   billingEnabled,
   discountForCheckout,
+  normalisePromo,
   productIdFor,
   promoEligible,
+  promoRequiresWaitlist,
   type BillingPeriod,
   type PaidTier,
 } from "@/lib/polar";
 import { studentVerificationActive } from "@/lib/student";
+import { onWaitlist } from "@/server/waitlist";
 import { appOrigin } from "@/lib/origin";
 import { RATE_LIMITED, withinLimit } from "@/server/limits";
 
@@ -38,8 +41,14 @@ const Params = z.object({
     cap on what it can cost is `max_redemptions` on the Polar discount, not
     this parameter — anyone can put ?promo=indie3 in the URL, and that is the
     same thing as having the link.
+
+    The waitlist promotion is the exception, and it is an exception about
+    worth rather than about mechanism: a free month handed to whoever forwards
+    the link is a different thing from 25% off handed to the same person. So
+    that slug carries a second condition, checked below against the table the
+    marketing site writes.
   */
-  promo: z.literal(INDIE3).nullish(),
+  promo: z.enum(PROMO_SLUGS).nullish(),
 });
 
 export async function GET(request: NextRequest) {
@@ -79,9 +88,10 @@ export async function GET(request: NextRequest) {
   /*
     Whether this checkout carries the promotion.
 
-    Two ways in, either of which is enough: `?promo=indie3` on this request,
-    or the cookie the middleware wrote when the founder first arrived through
-    the promotion's link. The cookie is what makes the promise survivable —
+    Two ways in, either of which is enough: `?promo=` on this request, or the
+    cookie the middleware wrote when the founder first arrived through a
+    promotion's link. The parameter wins when both are present, because it is
+    the more recent statement of what they came for. The cookie is what makes the promise survivable —
     a founder clicks the link, signs up, trials for a week and upgrades from
     the billing page, and the only request carrying the parameter was the
     first one. Reading it here rather than relying on the upgrade button to
@@ -94,8 +104,28 @@ export async function GET(request: NextRequest) {
     it. So `?tier=pro&promo=indie3` still buys Pro at list price.
   */
   const asked =
-    parsed.data.promo === INDIE3 || request.cookies.get(PROMO_COOKIE)?.value === INDIE3;
-  const promo = asked && promoEligible(tier, period);
+    parsed.data.promo ?? normalisePromo(request.cookies.get(PROMO_COOKIE)?.value);
+
+  /*
+    And whether they may actually have it.
+
+    Three gates, in the order that costs least. The plan and period come
+    first because they are free to check; the waitlist lookup is a round trip
+    to the database, so it only happens for the promotion that needs it and
+    only after the cheap refusals have had their chance.
+
+    A founder who asks for the waitlist month and is not on the waitlist is
+    not an error: they get Indie at whatever the ordinary discount is, which
+    is the same outcome as never having passed the parameter. Refusing the
+    checkout outright would strand somebody who clicked a forwarded link and
+    does want to buy.
+  */
+  let promo = asked && promoEligible(asked, tier, period) ? asked : null;
+  if (promo && promoRequiresWaitlist(promo) && !(await onWaitlist(ctx.email))) {
+    console.info(`[billing] ${ctx.email} asked for ${promo} and is not on the waitlist`);
+    promo = null;
+  }
+
   const discount = discountForCheckout(student, promo);
 
   try {
@@ -120,8 +150,14 @@ export async function GET(request: NextRequest) {
         Only set when the promotion actually applied, so the Bernn grant
         cannot be triggered by asking for it.
       */
+      /*
+        The slug itself, not a flag. The webhook grants a Bernn code on
+        `metadata.promo === INDIE3` and nothing else, so a waitlist order
+        says `waitlist` and is passed over there — which is the whole reason
+        this carries which promotion rather than whether there was one.
+      */
       metadata: promo
-        ? { workspace_id: ctx.workspace.id, promo: INDIE3 }
+        ? { workspace_id: ctx.workspace.id, promo }
         : { workspace_id: ctx.workspace.id },
       success_url: `${base}/billing?upgraded=1`,
       // The launch promotion, when one is running. Spread rather than passed

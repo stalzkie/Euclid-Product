@@ -209,11 +209,43 @@ export function studentDiscountId(): string | null {
 }
 
 /* -------------------------------------------------------------------------- */
-/* The "4 months for the price of 3" promotion                                */
+/* The promotions                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** The promotion's id in the app, in metadata, and in the `?promo=` link. */
+/** "Four months for the price of three." The launch promotion. */
 export const INDIE3 = "indie3";
+
+/** "Your first month is on us." The freebie owed to the waitlist. */
+export const WAITLIST = "waitlist";
+
+/**
+ * Every promotion, by the slug that appears in a `?promo=` link, in the
+ * cookie, and in the checkout's metadata.
+ *
+ * There was one of these as a plain constant, and the cost of the second
+ * promotion turned out not to be the discount but the five places that each
+ * tested `=== INDIE3` and would all have had to learn the new slug
+ * separately. The webhook is the reason that matters: `metadata.promo ===
+ * INDIE3` is what grants a Bernn code, and a waitlist order must not trigger
+ * it. A table makes "which promotion is this" a lookup rather than a
+ * condition somebody forgets to extend.
+ *
+ *   `env`      - the environment variable holding the Polar discount id.
+ *   `waitlist` - whether the buyer's address has to be on the waitlist. The
+ *                launch promotion is open to anyone holding the link and is
+ *                bounded by `max_redemptions`; a free month is not something
+ *                to hand to whoever forwards the URL, so this one is checked
+ *                against `waitlist_signups` on the server.
+ */
+const PROMOS = {
+  [INDIE3]: { env: "POLAR_DISCOUNT_INDIE3", waitlist: false },
+  [WAITLIST]: { env: "POLAR_DISCOUNT_WAITLIST", waitlist: true },
+} as const;
+
+export type Promo = keyof typeof PROMOS;
+
+/** Every slug, for the query-string schema in the checkout route. */
+export const PROMO_SLUGS = [INDIE3, WAITLIST] as const;
 
 /**
  * The cookie a `?promo=` lands in, and how long it is honoured for.
@@ -233,15 +265,46 @@ export const PROMO_COOKIE = "euclid_promo";
 export const PROMO_COOKIE_DAYS = 30;
 
 /**
+ * Whether an arriving `?promo=` should replace the cookie already held.
+ *
+ * A different promotion overwrites; the same one does not.
+ *
+ * Both halves are load-bearing and they were learned in the opposite order.
+ * Not overwriting came first, borrowed from the referral cookie, and the
+ * reason given was that re-writing on every visit would quietly extend the
+ * window for anyone who keeps clicking the same link — true, and still the
+ * reason the second half exists.
+ *
+ * The first half is the correction. With one promotion, "do not overwrite"
+ * and "do not extend" were the same sentence. With two they are not: a
+ * founder who had clicked a 4-for-3 link within the last thirty days opened
+ * their waitlist e-mail, arrived with `?promo=waitlist`, and was shown the
+ * launch offer, because the cookie still said `indie3`. The e-mail promised
+ * a month at zero and the page offered 25% off. Which promise to keep is not
+ * a close question: it is the one they were just sent.
+ *
+ * Note this is not attribution. Referrals keep first-write-wins because
+ * somebody is owed a commission there and a later link must not take it; a
+ * promotion owes nobody anything except the founder reading it.
+ */
+export function shouldWritePromo(
+  existing: string | null | undefined,
+  incoming: Promo,
+): boolean {
+  return existing !== incoming;
+}
+
+/**
  * The promotion named by a `?promo=` value, or null.
  *
- * There is exactly one promotion, so this is an equality check rather than a
- * pattern: anything else is not a promotion with a different name, it is a
- * typo or someone guessing. Null rather than a thrown error — a bad `?promo=`
- * should sell the plan at list price, not fail the request.
+ * A lookup in `PROMOS` rather than a comparison: a slug that is not in the
+ * table is not a promotion whose name we failed to recognise, it is a typo or
+ * someone guessing. Null rather than a thrown error — a bad `?promo=` should
+ * sell the plan at list price, not fail the request.
  */
-export function normalisePromo(raw: string | null | undefined): string | null {
-  return raw?.trim().toLowerCase() === INDIE3 ? INDIE3 : null;
+export function normalisePromo(raw: string | null | undefined): Promo | null {
+  const slug = raw?.trim().toLowerCase();
+  return slug && slug in PROMOS ? (slug as Promo) : null;
 }
 
 /**
@@ -259,9 +322,38 @@ export function normalisePromo(raw: string | null | undefined): string | null {
  * `products: [Indie Monthly]` and a `max_redemptions` cap — the cap is the
  * only thing bounding what the promotion can cost.
  */
-export function promoDiscountId(): string | null {
-  return process.env.POLAR_DISCOUNT_INDIE3 || null;
+export function promoDiscountId(promo: Promo = INDIE3): string | null {
+  return process.env[PROMOS[promo].env] || null;
 }
+
+/**
+ * Whether this promotion is only for people on the waitlist.
+ *
+ * The check itself is not here. This file reads environment variables and
+ * does arithmetic; it does not touch the database, which is what keeps it
+ * testable without one. `onWaitlist` in `server/waitlist.ts` answers the
+ * question, and the checkout route is where the two meet.
+ */
+export function promoRequiresWaitlist(promo: Promo): boolean {
+  return PROMOS[promo].waitlist;
+}
+
+/**
+ * The free month the waitlist was promised.
+ *
+ * One month at -100% on Indie Monthly, after which the subscription renews at
+ * list price rather than ending. Configure it in Polar with `duration:
+ * repeating`, `duration_in_months: 1`, `basis_points: 10000`, `products:
+ * [Indie Monthly]` and a `max_redemptions` cap — the cap is the only thing
+ * bounding what the promotion can cost, and a 100% discount is the one where
+ * that matters most.
+ *
+ * The seven-day trial does not eat the free month: Polar leaves
+ * `discount_applied_at` null while a subscription is trialing and stamps it at
+ * the first *paid* period, so a waitlist founder gets the trial and then the
+ * month. That was established for the 4-for-3 promotion and holds here for
+ * the same reason.
+ */
 
 /**
  * Whether this checkout may carry the promotion.
@@ -275,8 +367,12 @@ export function promoDiscountId(): string | null {
  * Checked on the server as well as in the link, so a founder who edits
  * `?tier=` in the URL does not get Pro at 25% off.
  */
-export function promoEligible(tier: PaidTier, period: BillingPeriod): boolean {
-  return Boolean(promoDiscountId()) && tier === "indie" && period === "monthly";
+export function promoEligible(
+  promo: Promo,
+  tier: PaidTier,
+  period: BillingPeriod,
+): boolean {
+  return Boolean(promoDiscountId(promo)) && tier === "indie" && period === "monthly";
 }
 
 /**
@@ -289,24 +385,31 @@ export function promoEligible(tier: PaidTier, period: BillingPeriod): boolean {
  *      promotion may be larger on the first invoice: theirs is the one that
  *      keeps applying, and quietly giving someone the worse long-term deal
  *      because it looks bigger today is not a trade to make on their behalf.
- *   2. The 4-for-3 promotion, when the founder arrived through that link and
- *      the plan qualifies. -25% over four months beats the launch promotion's
- *      -20% once, and it is also the thing they were promised.
+ *   2. The promotion the founder arrived through, when the plan qualifies.
+ *      Either one beats the launch promotion's -20% once, and it is also the
+ *      thing they were promised.
+ *
+ *      So a student who is also on the waitlist gets the student rate rather
+ *      than the free month, which is rule 1 doing exactly what it says: half
+ *      price forever is worth more than one month at zero by the end of the
+ *      second month, and Polar applies one discount per checkout — attaching
+ *      the free month instead would mean the student rate never attaches to
+ *      that subscription at all.
  *   3. The launch promotion, which applies to everyone else.
  *
  * `wantsPromo` is the caller's business: this does not look at a request.
  */
 export function discountForCheckout(
   studentVerified: boolean,
-  wantsPromo = false,
+  promo: Promo | null = null,
 ): string | null {
   if (studentVerified) {
     const student = studentDiscountId();
     if (student) return student;
   }
-  if (wantsPromo) {
-    const promo = promoDiscountId();
-    if (promo) return promo;
+  if (promo) {
+    const id = promoDiscountId(promo);
+    if (id) return id;
   }
   return autoDiscountId();
 }

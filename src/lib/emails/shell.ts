@@ -218,3 +218,27 @@ export function render(email: Email): string {
 </body>
 </html>`;
 }
+
+/**
+ * A short list of what something includes.
+ *
+ * Not a `<ul>`. Outlook ignores `list-style-position`, Gmail's mobile web
+ * client resets the left margin to its own value, and between them a real
+ * list renders at three different indents across four clients. A table of
+ * rows with an entity bullet in the first cell renders the same everywhere,
+ * which is the only property that matters here.
+ */
+export function bullets(items: string[]): string {
+  const rows = items
+    .map(
+      (item) => `<tr>
+    <td style="vertical-align:top;padding:0 9px 9px 0;font-family:${SANS};font-size:15px;line-height:24px;color:${TOKENS.blue};">&bull;</td>
+    <td class="meta-lock" style="vertical-align:top;padding:0 0 9px;font-family:${SANS};font-size:15px;line-height:24px;color:${TOKENS.body};">${esc(item)}</td>
+  </tr>`,
+    )
+    .join("\n");
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+${rows}
+</table>`;
+}

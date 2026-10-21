@@ -227,7 +227,7 @@ stands up Supabase. It found two real widget bugs on its first run; see
 
 ## What is left
 
-**0. The short list, as of 2026-10-20.** Everything below this is background
+**0. The short list, as of 2026-10-21.** Everything below this is background
 on how each piece got to where it is; these are the things nobody has done.
 
 - **The install doctor is live** as of 2026-10-21 — `0031` applied to
@@ -241,12 +241,38 @@ on how each piece got to where it is; these are the things nobody has done.
   Indie monthly at $9. But the marketing site is a separate project, and
   until a button there points at `app.euclidhq.com/signup?promo=indie3` the
   only way to reach the promotion is to type the URL. See `ROADMAP.md` §1.
-- **Send one real e-mail.** `EMAIL_FROM`, `EMAIL_REPLY_TO` and
-  `EMAIL_SIGN_OFF` are set and deployed but are the only configuration not
-  confirmed by its effect — that needs a send. `node scripts/send-test.mjs`
-  does it. It also answers the open question underneath them: **does
+- **The waitlist month works, and is not deployed.** As of 2026-10-21 the
+  whole path is built and was walked end to end on localhost against
+  *production* Polar and Supabase: the Polar discount exists (`Waitlist free
+  month`, `672c3da6-b093-4481-aa0d-60f7a6d3db2b`, -100% repeating over 1
+  month on Indie Monthly, capped at 25 redemptions and 1 per customer,
+  codeless), `?promo=waitlist` survives the sign-up redirect, the billing
+  page offers it, and a live checkout quote prices Indie Monthly at **$0 due
+  today, $0 after the trial** against $12 list. `node
+  scripts/check-waitlist-promo.mjs` re-proves all of it in one run.
+
+  Three things are **not** done. `POLAR_DISCOUNT_WAITLIST` is in `.env.local`
+  but **not on Vercel**, so production currently sells those founders Indie
+  at list price — the variable, then a deploy. The discount has **no
+  `Ends at`**, while the e-mail says the link is good for 30 days; set it in
+  Polar when the campaign actually goes out, or the sentence is untrue in
+  either direction. And nothing **sends** this to the waitlist yet: the
+  e-mail exists (`src/lib/emails/waitlist-offer.ts`) and
+  `scripts/send-waitlist-offer.mjs` sends it to one address at a time, which
+  is all seven rows need, but no job reads `waitlist_signups` and no column
+  records who was written to.
+
+  Note what the checkout page says: Polar asks for a **payment method** even
+  at $0 due today. The e-mail does not claim otherwise and must not start to.
+
+- **Send one real e-mail — done, 2026-10-21.** Two real sends through Resend,
+  both `200`, to `dstalingrad@gmail.com`: the waitlist offer, which is also
+  the first template to go out in the shared chrome. `EMAIL_FROM`,
+  `EMAIL_REPLY_TO` and `EMAIL_SIGN_OFF` are therefore confirmed by effect
+  rather than by being set. Still open underneath it: **does
   `business@euclidhq.com` actually receive?** Every template signs off
-  promising a reply, so a send-only address silently swallows them.
+  promising a reply, so a send-only address silently swallows them — reply to
+  one of those two e-mails and see whether it lands.
 - **Slack has still received nothing**, and the integration outbox's success
   leg — a 2xx from a real webhook — has never run. Everything around it has
   (see `ROADMAP.md`). Paste a webhook URL into the install screen and press

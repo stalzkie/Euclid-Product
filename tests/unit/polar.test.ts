@@ -13,7 +13,10 @@ import {
   productIdFor,
   promoDiscountId,
   promoEligible,
+  promoRequiresWaitlist,
   normalisePromo,
+  shouldWritePromo,
+  WAITLIST,
   trialDays,
 } from "@/lib/polar";
 
@@ -31,6 +34,7 @@ const ENV_KEYS = [
   "POLAR_DISCOUNT_FIRST_PURCHASE",
   "POLAR_DISCOUNT_STUDENT",
   "POLAR_DISCOUNT_INDIE3",
+  "POLAR_DISCOUNT_WAITLIST",
   ...POLAR_PRODUCTS.map((p) => p.env),
 ];
 
@@ -253,35 +257,35 @@ describe("discountForCheckout", () => {
 describe("the 4-for-3 promotion", () => {
   it("is not on offer unless a discount id is configured", () => {
     // A deployment without the discount must not advertise or apply it.
-    expect(promoDiscountId()).toBeNull();
-    expect(promoEligible("indie", "monthly")).toBe(false);
+    expect(promoDiscountId(INDIE3)).toBeNull();
+    expect(promoEligible(INDIE3, "indie", "monthly")).toBe(false);
   });
 
   it("applies to Indie monthly only", () => {
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
-    expect(promoEligible("indie", "monthly")).toBe(true);
+    expect(promoEligible(INDIE3, "indie", "monthly")).toBe(true);
   });
 
   it("refuses Pro, whose margin it was never costed against", () => {
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
     // The query string is a request, not permission: ?tier=pro&promo=indie3
     // must not buy Pro at 25% off for four months.
-    expect(promoEligible("pro", "monthly")).toBe(false);
-    expect(promoEligible("pro", "yearly")).toBe(false);
+    expect(promoEligible(INDIE3, "pro", "monthly")).toBe(false);
+    expect(promoEligible(INDIE3, "pro", "yearly")).toBe(false);
   });
 
   it("refuses yearly, which is already cheaper per month", () => {
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
     // Indie yearly is $10/mo. The promotion exists to carry a *monthly*
     // subscriber past the point where they decide it was worth it.
-    expect(promoEligible("indie", "yearly")).toBe(false);
+    expect(promoEligible(INDIE3, "indie", "yearly")).toBe(false);
   });
 
   it("beats the launch promotion when the founder came through its link", () => {
     process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
     // -25% over four months against -20% once, and it is what they were told.
-    expect(discountForCheckout(false, true)).toBe("disc_indie3");
+    expect(discountForCheckout(false, INDIE3)).toBe("disc_indie3");
   });
 
   it("loses to the student rate, which keeps applying", () => {
@@ -290,20 +294,94 @@ describe("the 4-for-3 promotion", () => {
     // Same reasoning the launch promotion already loses on: four months of
     // -25% is worth less than -50% forever, and picking the bigger number
     // today on someone else's behalf is the wrong trade.
-    expect(discountForCheckout(true, true)).toBe("disc_student");
+    expect(discountForCheckout(true, INDIE3)).toBe("disc_student");
   });
 
   it("falls back to the launch promotion when the promo is unconfigured", () => {
     process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
     // Asked for, not available: the founder still gets the standing offer
     // rather than no discount at all.
-    expect(discountForCheckout(false, true)).toBe("disc_launch");
+    expect(discountForCheckout(false, INDIE3)).toBe("disc_launch");
   });
 
   it("is not applied to a checkout that did not ask for it", () => {
     process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
     process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
     expect(discountForCheckout(false)).toBe("disc_launch");
+  });
+});
+
+/**
+ * The waitlist's free month.
+ *
+ * Shares every rule the 4-for-3 promotion has and adds one: this discount is
+ * -100%, so the thing that goes wrong is not a thinner margin but a month of
+ * Indie given away to whoever was forwarded the link. The slug alone is
+ * therefore not enough to earn it, and these tests are about that extra
+ * condition being asked for — `onWaitlist` is what answers it, and it is
+ * tested against the database in the integration suite rather than here.
+ */
+describe("the waitlist promotion", () => {
+  it("is not on offer unless its own discount id is configured", () => {
+    /*
+      Its own, not the launch promotion's. Both slugs resolving to whichever
+      id happened to be set is the failure that would hand a waitlist
+      founder -25% while the page promised -100%, or the reverse.
+    */
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    expect(promoDiscountId(WAITLIST)).toBeNull();
+    expect(promoEligible(WAITLIST, "indie", "monthly")).toBe(false);
+  });
+
+  it("reads its id from its own variable", () => {
+    process.env.POLAR_DISCOUNT_INDIE3 = "disc_indie3";
+    process.env.POLAR_DISCOUNT_WAITLIST = "disc_waitlist";
+    expect(promoDiscountId(WAITLIST)).toBe("disc_waitlist");
+    expect(promoDiscountId(INDIE3)).toBe("disc_indie3");
+  });
+
+  it("applies to Indie monthly only, like the other one", () => {
+    process.env.POLAR_DISCOUNT_WAITLIST = "disc_waitlist";
+    expect(promoEligible(WAITLIST, "indie", "monthly")).toBe(true);
+    // A free month of Pro is $29, and a free year of Indie is $120.
+    expect(promoEligible(WAITLIST, "pro", "monthly")).toBe(false);
+    expect(promoEligible(WAITLIST, "indie", "yearly")).toBe(false);
+  });
+
+  it("has to be earned, where the launch promotion only has to be asked for", () => {
+    // The link being public is the whole difference between the two: -25%
+    // forwarded to a friend is marketing, -100% forwarded to a friend is
+    // inventory walking off.
+    expect(promoRequiresWaitlist(WAITLIST)).toBe(true);
+    expect(promoRequiresWaitlist(INDIE3)).toBe(false);
+  });
+
+  it("still loses to the student rate", () => {
+    process.env.POLAR_DISCOUNT_STUDENT = "disc_student";
+    process.env.POLAR_DISCOUNT_WAITLIST = "disc_waitlist";
+    /*
+      Half price forever overtakes one month at zero during the second
+      month, and Polar applies one discount per checkout — so attaching the
+      free month would mean the student rate never attaches to that
+      subscription at all. Rule 1 is not a tie-break here, it is the whole
+      answer.
+    */
+    expect(discountForCheckout(true, WAITLIST)).toBe("disc_student");
+  });
+
+  it("beats the launch promotion, and is beaten by nothing else", () => {
+    process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
+    process.env.POLAR_DISCOUNT_WAITLIST = "disc_waitlist";
+    expect(discountForCheckout(false, WAITLIST)).toBe("disc_waitlist");
+    // And a checkout that did not ask for it gets the standing offer.
+    expect(discountForCheckout(false)).toBe("disc_launch");
+  });
+
+  it("falls back to the launch promotion when it is unconfigured", () => {
+    process.env.POLAR_DISCOUNT_FIRST_PURCHASE = "disc_launch";
+    // Owed a month, deployment cannot give it: the founder still gets the
+    // standing offer rather than an error or nothing at all.
+    expect(discountForCheckout(false, WAITLIST)).toBe("disc_launch");
   });
 });
 
@@ -317,25 +395,54 @@ describe("the 4-for-3 promotion", () => {
  * surviving, not about what it buys.
  */
 describe("normalisePromo", () => {
-  it("accepts the promotion's own id", () => {
+  it("accepts each promotion's own id", () => {
     expect(normalisePromo(INDIE3)).toBe(INDIE3);
+    expect(normalisePromo(WAITLIST)).toBe(WAITLIST);
   });
 
-  it("accepts it as typed, pasted or shouted", () => {
-    // A marketing link is edited by hand more often than anyone admits.
+  it("accepts them as typed, pasted or shouted", () => {
+    // A marketing link is edited by hand more often than anyone admits, and
+    // an e-mailed one gets re-typed from a phone screen.
     expect(normalisePromo(" indie3 ")).toBe(INDIE3);
     expect(normalisePromo("INDIE3")).toBe(INDIE3);
+    expect(normalisePromo(" Waitlist ")).toBe(WAITLIST);
+    expect(normalisePromo("WAITLIST")).toBe(WAITLIST);
   });
 
   it("refuses anything else rather than guessing", () => {
-    // There is one promotion. An unrecognised value is a typo or a guess, and
-    // either way the founder should see list price instead of an error.
+    // An unrecognised value is a typo or a guess, and either way the founder
+    // should see list price instead of an error.
     expect(normalisePromo("indie4")).toBeNull();
+    expect(normalisePromo("waitlist1")).toBeNull();
+    expect(normalisePromo("wait list")).toBeNull();
     expect(normalisePromo("indie")).toBeNull();
     expect(normalisePromo("true")).toBeNull();
     expect(normalisePromo("")).toBeNull();
     expect(normalisePromo(null)).toBeNull();
     expect(normalisePromo(undefined)).toBeNull();
+  });
+
+  it("lets a newer promotion replace an older one", () => {
+    /*
+      The bug this exists to prevent, found by walking the flow on 2026-10-21:
+      a founder who had clicked a 4-for-3 link in the previous thirty days
+      opened their waitlist e-mail, arrived with ?promo=waitlist, and was
+      shown the launch offer — the cookie still said indie3 and the capture
+      refused to overwrite it. The e-mail promised a month at zero and the
+      billing page offered 25% off.
+    */
+    expect(shouldWritePromo(INDIE3, WAITLIST)).toBe(true);
+    expect(shouldWritePromo(WAITLIST, INDIE3)).toBe(true);
+    expect(shouldWritePromo(undefined, WAITLIST)).toBe(true);
+    expect(shouldWritePromo(null, INDIE3)).toBe(true);
+  });
+
+  it("does not let the same link extend its own window", () => {
+    // The half of the old rule that was right: re-writing the cookie on
+    // every visit would give anyone who keeps clicking the same link a
+    // rolling thirty days, and the window is meant to be the window.
+    expect(shouldWritePromo(INDIE3, INDIE3)).toBe(false);
+    expect(shouldWritePromo(WAITLIST, WAITLIST)).toBe(false);
   });
 
   it("outlives the sign-up redirect for long enough to be used", () => {

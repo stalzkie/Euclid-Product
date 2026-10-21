@@ -13,6 +13,11 @@ import {
   studentVerificationHtml,
   studentVerificationText,
 } from "@/lib/emails/student-verification";
+import {
+  WAITLIST_OFFER_SUBJECT,
+  waitlistOfferHtml,
+  waitlistOfferText,
+} from "@/lib/emails/waitlist-offer";
 import { esc } from "@/lib/emails/shell";
 
 /**
@@ -214,6 +219,68 @@ describe("the student verification email", () => {
   });
 });
 
+const waitlist = {
+  claimUrl: "https://app.euclidhq.com/signup?promo=waitlist",
+  monthlyPrice: 12,
+  expiresInDays: 30,
+  recipient: "founder@example.test",
+  signOff: "Stal from Euclid",
+  origin: "https://app.euclidhq.com",
+};
+
+/**
+ * The waitlist offer.
+ *
+ * The only email in the set that makes an offer, so it is the only one where
+ * the copy can mislead someone into a charge they did not expect. These
+ * assertions are about that, not about styling.
+ */
+describe("the waitlist offer email", () => {
+  it("names the offer in the subject line", () => {
+    /*
+      The one email in the set that is allowed to say "free".
+
+      The partner-code subject dropped the word because it was a receipt for
+      something already paid for, and "free" is one of the clearer signals a
+      Promotions classifier has. This email is an offer nobody has acted on,
+      so the word is the news rather than a sales pitch, and the trade was
+      made deliberately. Asserted so that a later tidy-up does not "fix" it
+      back by citing the other email's rule.
+    */
+    expect(WAITLIST_OFFER_SUBJECT).toBe("Claim your Free Euclid Indie on us");
+  });
+
+  it("says what happens after the free month, in both parts", () => {
+    /*
+      A month at $0 that silently becomes $12 is the shape of the offer
+      nobody trusts. The price after the month and the fact it can be
+      cancelled are load-bearing copy, not decoration.
+    */
+    for (const part of [waitlistOfferHtml(waitlist), waitlistOfferText(waitlist)]) {
+      expect(part).toContain("$12 a month");
+      expect(part).toMatch(/cancel/i);
+    }
+  });
+
+  it("carries the claim link absolutely, in both parts", () => {
+    // Relative links mean nothing in an inbox, and a cautious reader checks
+    // the text part before clicking anything.
+    expect(waitlistOfferHtml(waitlist)).toContain(waitlist.claimUrl);
+    expect(waitlistOfferText(waitlist)).toContain(waitlist.claimUrl);
+  });
+
+  it("does not claim the link is personal to the reader", () => {
+    // It is one promotion link, not a per-recipient token. Saying otherwise
+    // would be a promise the mechanic cannot keep.
+    expect(waitlistOfferText(waitlist)).not.toMatch(/yours alone|only you|unique/i);
+  });
+
+  it("escapes the recipient rather than letting it become markup", () => {
+    const html = waitlistOfferHtml({ ...waitlist, recipient: '"><script>x</script>' });
+    expect(html).not.toContain("<script>x</script>");
+  });
+});
+
 describe("every customer-facing email is multipart", () => {
   it("has a text part that is not merely the markup stripped", () => {
     /*
@@ -226,6 +293,7 @@ describe("every customer-facing email is multipart", () => {
       partnerCodeText(content),
       trialEndingText(trial),
       studentVerificationText(student),
+      waitlistOfferText(waitlist),
     ];
     for (const text of texts) {
       expect(text).not.toMatch(/<[a-z/][^>]*>/i);
