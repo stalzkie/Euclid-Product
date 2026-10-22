@@ -492,6 +492,22 @@ steps abandoned, and intent that leaves no row.
 - [x] 24 unit tests on the capture rules, 12 on the behaviour derivations, 4
       browser specs that skip until the migration lands.
 
+### Decided while wiring it up
+
+- [x] **Captured events do not count towards retention or stickiness.**
+      Opening a screen is activity — better evidence of use than most state
+      changes — but capture began on 2026-10-22 and the derived stream goes
+      back to the first row ever written. Counting both would make every
+      cohort before that date look less retained than every cohort after it,
+      for no reason except when instrumentation shipped, and a series whose
+      meaning steps on a date is one nobody can compare across. Same failure
+      class as the funnel that printed "Paid 200%": not a wrong number, an
+      untrustworthy one. `countsAsActivity` is the one-line rule, the
+      Retention tab says so on the page, and attention is the Behaviour tab's
+      job. **"Last seen" does include them** — nothing is compared across a
+      period there, and a screen view is the best answer to "when did we last
+      see them".
+
 ### Not captured, and the reason
 
 - **Nothing before signup.** Capture needs a session, so there is no anonymous

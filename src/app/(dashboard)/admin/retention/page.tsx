@@ -14,6 +14,12 @@ import { Cols, Email, Empty, Figure, Panel, Table, Td, Tr, When, pct } from "../
  *
  * Cohorts this small are anecdote rather than statistics, and the page says
  * so instead of implying a trend from two rows.
+ *
+ * **Captured events are deliberately not counted here** — see
+ * `countsAsActivity`. Capture began on one date and this stream goes back to
+ * the first row ever written, so counting screen views would make every
+ * cohort before that date look worse than every cohort after it for no reason
+ * except when instrumentation shipped. Attention is the Behaviour tab.
  */
 export const dynamic = "force-dynamic";
 
@@ -53,8 +59,14 @@ export default async function RetentionPage() {
       <header className="flex flex-col gap-1">
         <h1 className="text-[22px] font-semibold tracking-[-0.015em]">Retention</h1>
         <p className="text-[12.5px] text-ink-3">
-          Weekly cohorts by the UTC week a workspace was created. Active means any event at all in
-          that workspace during the week.
+          Weekly cohorts by the UTC week a workspace was created. Active means the workspace
+          recorded something that week — a post, a vote, a prompt, a board.{" "}
+          <Link href="/admin/behaviour" className="text-state hover:underline">
+            Captured screen views
+          </Link>{" "}
+          are not counted: capture started on one date and this goes back to the first row ever
+          written, so including them would make every earlier cohort look worse for no reason but
+          instrumentation.
         </p>
       </header>
 
@@ -142,7 +154,7 @@ export default async function RetentionPage() {
 
       <Panel
         title="Most active, last 30 days"
-        note="Events per workspace, owner address attached — the list to read before writing to anyone."
+        note="Events per workspace, owner address attached — the list to read before writing to anyone. Screen views do count here, unlike in the grid above: this is a snapshot rather than a series."
       >
         {leaderboard.length === 0 ? (
           <Empty>Nothing in the last 30 days.</Empty>

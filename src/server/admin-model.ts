@@ -758,6 +758,30 @@ export function kindCounts(events: AdminEvent[], days: number, now: Date): { kin
 /* Retention and stickiness                                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Whether an event may count towards retention and stickiness.
+ *
+ * Captured events may not, and this is the subtlest decision in the file.
+ * Opening a screen is obviously activity — it is better evidence somebody is
+ * using the product than most state changes are — but capture began on
+ * 2026-10-22 and the derived stream goes back to the first row ever written.
+ * Counting both would make every cohort before that date look less retained
+ * than every cohort after it, for no reason except when instrumentation
+ * shipped, and a series whose meaning steps on a date is one nobody can
+ * compare across it. That is the same failure as the funnel that printed
+ * "Paid 200%": not a wrong number, a number that cannot be trusted.
+ *
+ * So the Retention tab measures what the product recorded, consistently, all
+ * the way back; the Behaviour tab measures attention, and says what date it
+ * starts from. "Last seen" on a person or a workspace **does** include
+ * captured events, because nothing is being compared across a period there —
+ * the question is only "when did we last see them", and a screen view is the
+ * best answer to it.
+ */
+export function countsAsActivity(event: AdminEvent): boolean {
+  return event.kind !== "track";
+}
+
 export interface RetentionRow {
   cohort: string;
   size: number;
@@ -781,7 +805,7 @@ export function retentionGrid(
 ): RetentionRow[] {
   const activeWeeks = new Map<string, Set<string>>();
   for (const e of events) {
-    if (!e.workspaceId) continue;
+    if (!e.workspaceId || !countsAsActivity(e)) continue;
     const set = activeWeeks.get(e.workspaceId) ?? new Set<string>();
     set.add(weekKey(e.at));
     activeWeeks.set(e.workspaceId, set);
@@ -826,7 +850,7 @@ export function stickiness(events: AdminEvent[], now: Date): Stickiness {
     const since = now.getTime() - days * DAY_MS;
     const set = new Set<string>();
     for (const e of events) {
-      if (!e.workspaceId) continue;
+      if (!e.workspaceId || !countsAsActivity(e)) continue;
       if (new Date(e.at).getTime() >= since) set.add(e.workspaceId);
     }
     return set.size;

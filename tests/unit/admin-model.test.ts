@@ -30,6 +30,7 @@ import {
   monthlyCents,
   onboardingProgress,
   pathStats,
+  people,
   propBreakdown,
   queueHealth,
   recipients,
@@ -1158,7 +1159,19 @@ describe("captured events in the derived stream", () => {
     expect(track?.workspaceName).toBe("Acme");
   });
 
-  it("counts as activity for retention and stickiness", () => {
+  it("does not count as activity for retention or stickiness", () => {
+    /*
+      The subtlest decision in the model, and it was made the other way
+      first. Opening a screen is activity — better evidence of use than most
+      state changes — but capture began on one date and the derived stream
+      goes back to the first row ever written. Counting both would make every
+      cohort before that date look less retained than every cohort after it,
+      for no reason except when instrumentation shipped.
+
+      So retention measures what the product recorded, consistently, all the
+      way back. Attention is the Behaviour tab's job, dated by
+      `captureSince`.
+    */
     const data = estate({
       workspaces: slice([workspace({ created_at: "2026-10-05T10:00:00.000Z" })]),
       members: slice([member()]),
@@ -1166,6 +1179,14 @@ describe("captured events in the derived stream", () => {
     });
 
     const events = deriveEvents(data, buildIndex(data, [user()]));
-    expect(stickiness(events, new Date("2026-10-22T06:00:00.000Z")).dau).toBe(1);
+    const now = new Date("2026-10-22T06:00:00.000Z");
+
+    // The signup is the only thing that counts, and it was two weeks ago.
+    expect(stickiness(events, now).dau).toBe(0);
+    expect(retentionGrid(data.workspaces.rows, events, 3, now)[0].cells[2]).toBe(0);
+
+    // But the person was seen today, because "last seen" is not a series.
+    const [person] = people(data, [user()], events, buildIndex(data, [user()]), () => false);
+    expect(person.lastSeenAt).toBe("2026-10-22T05:00:00.000Z");
   });
 });

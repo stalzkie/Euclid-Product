@@ -208,7 +208,7 @@ export default async function AdminPage({
       <div className="grid gap-7 lg:grid-cols-2">
         <Panel
           title="Engagement"
-          note="A workspace counts as active on a day if anything at all happened in it."
+          note="Active means the workspace recorded something. Captured screen views are not counted, so the series means the same thing before and after capture shipped."
         >
           <Cols min={120}>
             <Figure label="Active today" value={sticky.dau} />
