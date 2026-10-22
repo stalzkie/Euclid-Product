@@ -1,13 +1,12 @@
-import Link from "next/link";
 import { requireAdmin } from "@/server/admin";
 import { consoleData } from "@/server/admin-console";
 import { revenue, workspaceViews } from "@/server/admin-model";
 import {
   Cols,
-  Email,
   Empty,
   Figure,
   Panel,
+  PersonCell,
   Pill,
   Table,
   Td,
@@ -139,9 +138,7 @@ export default async function WorkspacesPage({
                       <span className="text-ink-3">no member</span>
                     ) : (
                       w.owners.map((o) => (
-                        <Link key={o.userId} href={`/admin/people/${o.userId}`} className="block">
-                          <Email address={o.email} />
-                        </Link>
+                        <PersonCell key={o.userId} email={o.email} userId={o.userId} />
                       ))
                     )}
                   </span>

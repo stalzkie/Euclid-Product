@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/icons";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -12,8 +12,27 @@ import { supabaseBrowser } from "@/lib/supabase/client";
  */
 export function HashCallback({ next }: { next: string | null }) {
   const [error, setError] = useState<string | null>(null);
+  const started = useRef(false);
 
   useEffect(() => {
+    /*
+      Once per mount, guarded by a ref.
+
+      The tokens in the fragment are single use: `setSession` spends the
+      refresh token, and a second call with the same one is refused. React
+      deliberately invokes effects twice in development, so without this guard
+      the first pass signed in and the second failed — leaving "Could not sign
+      you in" on screen next to a session that had in fact been established,
+      and no navigation. It is why signing in never completed under
+      `next dev`, which is also why the browser suite was written to run only
+      against a build.
+
+      Production invokes once and was never affected, which is the worst kind
+      of fragility: invisible exactly where it is being looked at.
+    */
+    if (started.current) return;
+    started.current = true;
+
     // The whole exchange runs inside this, reading the fragment included.
     // Signing in is one process with one failure path, so its errors all
     // reach state the same way — from a callback, never synchronously out of

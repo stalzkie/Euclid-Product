@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireAdmin } from "@/server/admin";
 import { consoleData } from "@/server/admin-console";
 import { partnerPoolStatus } from "@/server/billing";
@@ -10,6 +9,7 @@ import {
   Figure,
   Meterline,
   Panel,
+  PersonCell,
   Pill,
   Table,
   Td,
@@ -142,13 +142,7 @@ export default async function BillingPage() {
               <Tr key={w.id} tone="warn">
                 <Td>{w.name}</Td>
                 <Td wrap>
-                  {owner(w.id) ? (
-                    <Link href={`/admin/people/${owner(w.id)!.userId}`}>
-                      <Email address={owner(w.id)!.email} />
-                    </Link>
-                  ) : (
-                    <span className="text-ink-3">no member</span>
-                  )}
+                  <PersonCell email={owner(w.id)?.email} userId={owner(w.id)?.userId} />
                 </Td>
                 <Td>{w.plan}</Td>
                 <Td>

@@ -180,6 +180,78 @@ function pctDelta(now: number, before: number): number {
  * Posts for the inbox and Home, enriched with the derived columns the UI shows:
  * paying share, votes this week and a seven-point trend.
  */
+interface VoteJoinRow {
+  post_id: string;
+  created_at: string;
+  end_users: unknown;
+}
+
+/**
+ * Rows per response — PostgREST’s ceiling, not ours.
+ *
+ * The one line of this file that was quietly wrong. A select with no limit
+ * still comes back capped at `db-max-rows`, which is 1 000 on this project,
+ * and the votes behind the inbox are the only dashboard query that can
+ * exceed it: the seeded board has 1 085 votes across 18 posts. So every
+ * sparkline, every `payingShare` and every `recentVotes` on that screen was
+ * computed from an arbitrary thousand of them — arbitrary because the query
+ * had no `order by` either, so which thousand was up to Postgres.
+ *
+ * Found by the operator console hitting the same wall on the same table and
+ * being made to page; this is the founder-facing half of that fix.
+ */
+const VOTE_PAGE = 1000;
+
+/**
+ * Past this many votes across the listed posts, stop and say so.
+ *
+ * An unbounded loop on the critical path of the inbox is worse than a figure
+ * that is a floor, and 20 000 is far past any board this product has. When a
+ * real board passes it the answer is not a bigger number: it is an aggregate
+ * in SQL, the way `post_vote_velocity` already computes the recent count.
+ */
+const VOTE_CEILING = 20_000;
+
+/**
+ * Every vote on these posts, in pages, newest first.
+ *
+ * The second `order` is not decoration. Seeded votes share a `created_at` to
+ * the microsecond, and tied rows may come back in a different order per
+ * request — which across two pages duplicates some rows and drops others.
+ * The id breaks the tie, and it is ordered without being selected.
+ */
+async function allVotesFor(ids: string[]): Promise<VoteJoinRow[]> {
+  if (ids.length === 0) return [];
+  const db = await supabaseServer();
+  const out: VoteJoinRow[] = [];
+
+  while (out.length < VOTE_CEILING) {
+    const { data, error } = await db
+      .from("votes")
+      .select("post_id, created_at, end_users(segments)")
+      .in("post_id", ids)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(out.length, Math.min(out.length + VOTE_PAGE, VOTE_CEILING) - 1);
+
+    if (error) {
+      console.warn(`[queries] vote page at ${out.length} failed: ${error.message}`);
+      break;
+    }
+    const page = (data ?? []) as VoteJoinRow[];
+    out.push(...page);
+    if (page.length < VOTE_PAGE) break;
+  }
+
+  if (out.length >= VOTE_CEILING) {
+    console.warn(
+      `[queries] vote history for ${ids.length} posts hit the ${VOTE_CEILING}-row ceiling; ` +
+        "the inbox figures are a floor until this moves into SQL",
+    );
+  }
+  return out;
+}
+
 export async function listPosts(
   boardId: string,
   opts: {
@@ -220,29 +292,33 @@ export async function listPosts(
 
   if (!rows.length) return [];
 
-  const enriched = await enrich(boardId, rows);
+  const enriched = await enrich(rows);
   if (opts.sort === "rising") {
     enriched.sort((a, b) => b.recentVotes - a.recentVotes);
   }
   return enriched;
 }
 
+/**
+ * The sparkline, the paying share and the recent count for each post.
+ *
+ * No board id: the votes are fetched by post id, which is the only key this
+ * needs and the one the posts already carry. It took a `boardId` while the
+ * vote query was a single unpaged select, and the parameter outlived the
+ * reason for it.
+ */
 async function enrich(
-  boardId: string,
   rows: (Post & { themes: { name: string } | null; end_users: { email: string | null } | null })[],
 ): Promise<PostRow[]> {
-  const db = await supabaseServer();
   const ids = rows.map((r) => r.id);
 
   // One query for every vote on these posts, then bucket in memory — cheaper
-  // than a round trip per post for the sparkline.
-  const { data: votes } = await db
-    .from("votes")
-    .select("post_id, created_at, end_users(segments)")
-    .in("post_id", ids);
+  // than a round trip per post for the sparkline. Paged, because one query is
+  // not one response: see `allVotesFor`.
+  const votes = await allVotesFor(ids);
 
   const byPost = new Map<string, { at: number; paying: boolean }[]>();
-  for (const v of votes ?? []) {
+  for (const v of votes) {
     const plan = one<{ segments?: Record<string, string> }>(v.end_users)?.segments?.plan;
     const list = byPost.get(v.post_id) ?? [];
     list.push({ at: new Date(v.created_at).getTime(), paying: Boolean(plan && plan !== "free") });
@@ -354,7 +430,7 @@ export async function getPost(boardId: string, number: number): Promise<PostDeta
     .maybeSingle();
 
   if (!data) return null;
-  const [row] = await enrich(boardId, [
+  const [row] = await enrich([
     data as unknown as Post & {
       themes: { name: string } | null;
       end_users: { email: string | null } | null;

@@ -138,8 +138,21 @@ async function destroyBoard(board: E2EBoard): Promise<void> {
   await db.remove(`workspaces?id=eq.${board.workspaceId}`);
 }
 
-async function createFounder(workspaceId: string): Promise<E2EFounder> {
-  const email = `e2e-${Math.random().toString(36).slice(2, 10)}@euclid.test`;
+/**
+ * The operator console's gate is an allow-list of addresses in
+ * `ADMIN_EMAILS`, so the operator fixture needs an address that is known
+ * before the run starts — a random one could never be on a list written at
+ * deploy time. Everything else about it is an ordinary founder.
+ *
+ * `tests/e2e/admin.spec.ts` skips itself unless this address is allow-listed,
+ * which is why the suite stays green on a machine that has not opted in.
+ */
+export const OPERATOR_EMAIL = "e2e-operator@euclid.test";
+
+async function createFounder(
+  workspaceId: string,
+  email = `e2e-${Math.random().toString(36).slice(2, 10)}@euclid.test`,
+): Promise<E2EFounder> {
 
   const created = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
     method: "POST",
@@ -150,8 +163,27 @@ async function createFounder(workspaceId: string): Promise<E2EFounder> {
       user_metadata: { full_name: "Maya Reyes" },
     }),
   });
-  const user = (await created.json()) as { id?: string; msg?: string };
-  if (!user.id) throw new Error(`could not create the e2e user: ${JSON.stringify(user)}`);
+  let user = (await created.json()) as { id?: string; msg?: string };
+
+  if (!user.id) {
+    // A fixed address outlives a crashed run, where a random one cannot
+    // collide. Reuse the existing login rather than failing the whole suite
+    // on litter from last time.
+    const existing = await fetch(
+      `${SUPABASE_URL}/auth/v1/admin/users?per_page=200`,
+      { headers: authHeaders() },
+    ).then((r) => r.json() as Promise<{ users?: { id: string; email?: string }[] }>);
+    const match = (existing.users ?? []).find(
+      (u) => u.email?.toLowerCase() === email.toLowerCase(),
+    );
+    if (!match) throw new Error(`could not create the e2e user: ${JSON.stringify(user)}`);
+    user = { id: match.id };
+  }
+
+  // Narrowed for the return below: both branches above either set an id or
+  // threw, which TypeScript cannot see through the reassignment.
+  const userId = user.id;
+  if (!userId) throw new Error("could not resolve the e2e user id");
 
   const member = await fetch(`${SUPABASE_URL}/rest/v1/workspace_members`, {
     method: "POST",
@@ -169,7 +201,7 @@ async function createFounder(workspaceId: string): Promise<E2EFounder> {
 
   return {
     email,
-    userId: user.id,
+    userId,
     async signIn(page: Page, next?: string) {
       const redirectTo = `${APP_URL}/auth/callback${
         next ? `?next=${encodeURIComponent(next)}` : ""
@@ -224,7 +256,7 @@ type NoTestFixtures = object;
 
 export const test = base.extend<
   NoTestFixtures,
-  { board: E2EBoard; founder: E2EFounder }
+  { board: E2EBoard; founder: E2EFounder; operator: E2EFounder }
 >({
   board: [
     async ({}, use) => {
@@ -247,6 +279,20 @@ export const test = base.extend<
       // deleted by hand. Without it a run against a hosted project leaves a
       // user behind every time.
       await destroyFounder(founder);
+    },
+    { scope: "worker" },
+  ],
+
+  /**
+   * A founder whose address is on the `ADMIN_EMAILS` allow-list, for the
+   * operator console. Same workspace as `founder`, so the console has
+   * something real to read, and deleted the same way.
+   */
+  operator: [
+    async ({ board }, use) => {
+      const operator = await createFounder(board.workspaceId, OPERATOR_EMAIL);
+      await use(operator);
+      await destroyFounder(operator);
     },
     { scope: "worker" },
   ],

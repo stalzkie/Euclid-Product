@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/server/admin";
 import { consoleData } from "@/server/admin-console";
 import { retentionGrid, stickiness, weekKey, workspaceViews } from "@/server/admin-model";
-import { Cols, Email, Empty, Figure, Panel, Table, Td, Tr, When, pct } from "../parts";
+import { Cols, Empty, Figure, Panel, PersonCell, Table, Td, Tr, When, pct } from "../parts";
 
 /**
  * Retention: of the workspaces that arrived in a week, how many came back.
@@ -167,13 +167,10 @@ export default async function RetentionPage() {
               <Tr key={w.id} tone={count === 0 ? "warn" : undefined}>
                 <Td>{w.name}</Td>
                 <Td wrap>
-                  {w.owners[0] ? (
-                    <Link href={`/admin/people/${w.owners[0].userId}`}>
-                      <Email address={w.owners[0].email} />
-                    </Link>
-                  ) : (
-                    <span className="text-ink-3">no member</span>
-                  )}
+                  <PersonCell
+                    email={w.owners[0]?.email}
+                    userId={w.owners[0]?.userId}
+                  />
                 </Td>
                 <Td num>{count}</Td>
                 <Td num>{w.events}</Td>

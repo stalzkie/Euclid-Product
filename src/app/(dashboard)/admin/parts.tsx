@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { cx } from "@/components/ui";
 import { ago, longDate } from "@/lib/format";
 
@@ -207,6 +208,47 @@ export function Email({ address, dim }: { address: string | null | undefined; di
 }
 
 /** A timestamp: relative for scanning, exact in the title for certainty. */
+/**
+ * An address, and a way into that person's page.
+ *
+ * Two anchors side by side rather than one wrapping the other, which is what
+ * five of these cells did first: a `<Link>` around `<Email>` is an `<a>`
+ * inside an `<a>`. The browser repairs it by closing the outer anchor early,
+ * so the server HTML and the client tree disagree and React throws a
+ * hydration error (#418) on every tab that rendered one — Workspaces, Events,
+ * Behaviour, Retention, and Billing whenever a trial was ending. It also made
+ * clicking the address ambiguous: mail them, or open their page?
+ *
+ * So: the address mails them, the arrow opens them.
+ */
+export function PersonCell({
+  email,
+  userId,
+  fallback = "no member",
+}: {
+  email: string | null | undefined;
+  userId?: string | null;
+  fallback?: string;
+}) {
+  if (!email && !userId) return <span className="text-[12px] text-ink-3">{fallback}</span>;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <Email address={email} />
+      {userId && (
+        <Link
+          href={`/admin/people/${userId}`}
+          title="Open this person"
+          aria-label={`Open ${email ?? "this person"}`}
+          className="text-[12px] text-ink-3 no-underline hover:text-state"
+        >
+          ↗
+        </Link>
+      )}
+    </span>
+  );
+}
+
 export function When({ at, prefix }: { at: string | null | undefined; prefix?: string }) {
   if (!at) return <span className="text-ink-3">never</span>;
   return (

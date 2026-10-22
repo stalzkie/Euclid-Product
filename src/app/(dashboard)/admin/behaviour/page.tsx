@@ -23,6 +23,7 @@ import {
   Figure,
   Meterline,
   Panel,
+  PersonCell,
   Pill,
   Table,
   Td,
@@ -222,9 +223,7 @@ export default async function BehaviourPage({
                         <ul className="mt-2 flex flex-col gap-1 border-t border-hairline pt-2">
                           {step.stuck.map((person) => (
                             <li key={person.userId} className="flex flex-wrap items-center gap-2">
-                              <Link href={`/admin/people/${person.userId}`}>
-                                <Email address={person.email} />
-                              </Link>
+                              <PersonCell email={person.email} userId={person.userId} />
                               <span className="text-[12px] text-ink-3">
                                 {person.workspace ?? "no workspace"}
                               </span>

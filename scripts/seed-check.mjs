@@ -35,4 +35,13 @@ const series = await fetch(`${url}/rest/v1/rpc/board_daily_series`, {
 const half = Math.floor(series.length / 2);
 const sum = (a) => a.reduce((x, d) => x + Number(d.votes), 0);
 console.log(`30-day series: ${sum(series)} votes | first half ${sum(series.slice(0, half))} -> second half ${sum(series.slice(half))}`);
-console.log("total votes:", (await q("votes?select=id")).length, "| voters:", (await q("end_users?select=id")).length);
+// Counted through the Content-Range header rather than by the length of the
+// rows: PostgREST caps a response at 1 000 whatever it is asked for, so this
+// line used to report exactly 1000 votes on a board that has 1085.
+const total = async (path) => {
+  const r = await fetch(`${url}/rest/v1/${path}&limit=1`, {
+    headers: { ...h, prefer: "count=exact" },
+  });
+  return Number((r.headers.get("content-range") ?? "").split("/")[1] ?? 0);
+};
+console.log("total votes:", await total("votes?select=id"), "| voters:", await total("end_users?select=id"));

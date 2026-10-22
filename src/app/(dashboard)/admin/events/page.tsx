@@ -9,7 +9,7 @@ import {
   type EventKind,
 } from "@/server/admin-model";
 import { cx } from "@/components/ui";
-import { Bars, Email, Empty, Panel, Pill, Table, Td, Tr, When, Delta } from "../parts";
+import { Bars, Delta, Empty, Panel, PersonCell, Pill, Table, Td, Tr, When } from "../parts";
 import { Range } from "../range";
 import { Search, matches } from "../search";
 
@@ -166,12 +166,8 @@ export default async function EventsPage({
                   </Pill>
                 </Td>
                 <Td wrap>
-                  {e.actor.userId ? (
-                    <Link href={`/admin/people/${e.actor.userId}`}>
-                      <Email address={e.actor.email} />
-                    </Link>
-                  ) : e.actor.email ? (
-                    <Email address={e.actor.email} />
+                  {e.actor.userId || e.actor.email ? (
+                    <PersonCell email={e.actor.email} userId={e.actor.userId} />
                   ) : (
                     <span className="font-mono text-[11.5px] text-ink-3">{e.actor.label}</span>
                   )}
