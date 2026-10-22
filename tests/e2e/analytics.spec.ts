@@ -1,4 +1,5 @@
-import { expect, test } from "./fixture";
+import type { Page } from "@playwright/test";
+import { expect, test, type E2EFounder } from "./fixture";
 import { SUPABASE_URL, db, dbHeaders } from "../integration/setup";
 
 /**
@@ -27,6 +28,25 @@ async function tableExists(): Promise<boolean> {
   return res.ok;
 }
 
+/**
+ * Signed in, and *landed*.
+ *
+ * `signIn` resolves when the document it navigated to has loaded, which is
+ * `/auth/hash` — and the session does not exist yet at that point. The token
+ * arrives in a fragment the server never sees, so the browser calls
+ * `setSession` and only then writes the cookies and navigates on. A `fetch`
+ * issued before that lands at the route with no cookies at all, which is
+ * exactly what the first version of these two tests did: the route answered
+ * 204, correctly, and the test read it as a failure to record.
+ *
+ * Waiting on the dashboard heading is the same thing `dashboard.spec.ts`
+ * does, and it is the cheapest proof the chain finished.
+ */
+async function signedIn(page: Page, founder: E2EFounder, next?: string): Promise<void> {
+  await founder.signIn(page, next);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+}
+
 test.describe("captured events", () => {
   // Checked per test rather than once at module scope: Playwright transpiles
   // specs to CommonJS, where a top-level await is a syntax error.
@@ -42,8 +62,7 @@ test.describe("captured events", () => {
     founder,
   }) => {
     // A query parameter on the way in, to prove the stored path drops it.
-    await founder.signIn(page, "/designer?from=e2e");
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await signedIn(page, founder, "/designer?from=e2e");
 
     // The client batches on a 1.5-second timer; give it that plus slack
     // rather than asserting against a race.
@@ -80,11 +99,11 @@ test.describe("captured events", () => {
     page,
     founder,
   }) => {
-    await founder.signIn(page);
+    await signedIn(page, founder);
 
     // Post as the signed-in founder, but claim to be somebody else entirely.
     // Every one of these fields must be ignored.
-    const written = await page.evaluate(async () => {
+    const posted = await page.evaluate(async () => {
       const res = await fetch("/api/analytics", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -102,10 +121,13 @@ test.describe("captured events", () => {
           ],
         }),
       });
-      return (await res.json()) as { written: number };
+      // Status and text, not `.json()`: a 204 would otherwise surface as a
+      // JSON syntax error, which says nothing about what the route decided.
+      return { status: res.status, body: await res.text() };
     });
 
-    expect(written.written).toBe(1);
+    expect(posted.status, posted.body).toBe(200);
+    expect(JSON.parse(posted.body)).toEqual({ written: 1 });
 
     const [row] = await db.select<{
       user_id: string;
@@ -128,9 +150,9 @@ test.describe("captured events", () => {
   });
 
   test("an unknown event name is dropped without failing the batch", async ({ page, founder }) => {
-    await founder.signIn(page);
+    await signedIn(page, founder);
 
-    const written = await page.evaluate(async () => {
+    const posted = await page.evaluate(async () => {
       const res = await fetch("/api/analytics", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -141,12 +163,13 @@ test.describe("captured events", () => {
           ],
         }),
       });
-      return (await res.json()) as { written: number };
+      return { status: res.status, body: await res.text() };
     });
 
     // One of the two: a tab running a stale bundle must not lose the event
     // beside the one it got wrong.
-    expect(written.written).toBe(1);
+    expect(posted.status, posted.body).toBe(200);
+    expect(JSON.parse(posted.body)).toEqual({ written: 1 });
 
     const rows = await db.select<{ name: string }>(
       "analytics_events?session_id=eq.e2e-unknown&select=name",
