@@ -8,7 +8,15 @@ export interface PlanSpec {
   tier: PlanTier;
   name: string;
   monthly: number;
+  /**
+   * The ANNUAL TOTAL, not a per-month equivalent -- this is the figure Polar
+   * charges the card, and the only one a customer can check a statement
+   * against. $8.33 x 12 is $99.96, not $100, so the per-month number below
+   * may sit beside this but must never replace it.
+   */
   yearly: number;
+  /** Display only. Always rendered next to the annual total, never alone. */
+  yearlyPerMonth: string;
   boards: number | null;
   buildPrompts: number;
   chatCredits: number;
@@ -30,6 +38,7 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     name: "Free",
     monthly: 0,
     yearly: 0,
+    yearlyPerMonth: "0",
     boards: 1,
     buildPrompts: 3,
     chatCredits: 0,
@@ -52,7 +61,8 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     tier: "indie",
     name: "Indie",
     monthly: 12,
-    yearly: 10,
+    yearly: 100,
+    yearlyPerMonth: "8.33",
     boards: 3,
     buildPrompts: 50,
     chatCredits: 500,
@@ -76,7 +86,8 @@ export const PLANS: Record<PlanTier, PlanSpec> = {
     tier: "pro",
     name: "Pro",
     monthly: 29,
-    yearly: 24,
+    yearly: 240,
+    yearlyPerMonth: "20.00",
     boards: null,
     buildPrompts: 300,
     /*
