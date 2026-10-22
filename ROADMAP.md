@@ -527,6 +527,32 @@ steps abandoned, and intent that leaves no row.
       `node scripts/tidy-fixtures.mjs --apply` removes them; left for the
       founder to trigger, since it deletes live rows.
 
+### Deployed, 2026-10-22
+
+`9d331a2` is live at `https://app.euclidhq.com` — the console, capture, the
+paged reads and the hydration fix. Verified by effect rather than by the
+dashboard saying "Ready": `/widget.js` 200, `/admin` 307 to `/signup` for a
+visitor with no session, the public board and its API 200, `POST
+/api/analytics` 204 without a session, `/api/jobs/run` 401 without the secret,
+and **no open rows in `error_events`** afterwards. Capture is working on
+production: 80 events, including a whole `onboarding.app → profile → install`
+run and an `install.snippet_copied`.
+
+Two things about *how* it was deployed, both worth keeping:
+
+- **Vercel blocks a deploy whose commit author it does not know.** The first
+  attempt came back `Blocked`: "the commit author doesn't have permission to
+  create deployments for this project". The CLI authenticates as
+  `dstalingrad-6058` while every commit here was authored
+  `Grimdark Fantasy <fantasy.grimdark@gmail.com>`. The repo-local git identity
+  is now `stalzkie <dstalingrad@gmail.com>`, which is the account that owns
+  the project; the fix is in `.git/config` and touches no other repository.
+- **`vercel deploy` ships the working directory, not `HEAD`.** The tree held
+  an unfinished feature whose migration was not applied, so the deploy was
+  made from a clean checkout of `main` instead. Worth remembering whenever two
+  things are in flight at once: a dirty tree is a deployable artefact, and
+  nothing warns you.
+
 ### Not captured, and the reason
 
 - **Nothing before signup.** Capture needs a session, so there is no anonymous
