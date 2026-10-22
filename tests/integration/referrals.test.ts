@@ -21,6 +21,24 @@ interface Workspace {
 
 const made: string[] = [];
 
+/**
+ * Cleanup for the whole file, not for one `describe`.
+ *
+ * It used to sit inside the first suite, which runs its `afterAll` when that
+ * suite finishes — so the workspace the *second* suite creates was never
+ * removed, and every run of this file left one more `Ref orphan …` row in the
+ * database. Two of them were found by the operator console, which counts
+ * every workspace as a signup and had no way to know these were ours: four
+ * real workspaces and two fixtures read as six.
+ *
+ * At file level it covers any suite that calls `workspace()`, including the
+ * third one somebody adds later.
+ */
+afterAll(async () => {
+  for (const id of made) await db.remove(`workspaces?id=eq.${id}`);
+  made.length = 0;
+});
+
 async function workspace(label: string): Promise<Workspace> {
   const suffix = Math.random().toString(36).slice(2, 8);
   const [row] = await db.insert<Workspace>("workspaces", {
@@ -63,10 +81,6 @@ suite("referral commissions", () => {
       referred_by: code,
       referred_at: new Date().toISOString(),
     });
-  });
-
-  afterAll(async () => {
-    for (const id of made) await db.remove(`workspaces?id=eq.${id}`);
   });
 
   it("credits the referrer when the referred workspace pays", async () => {

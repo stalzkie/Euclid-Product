@@ -508,6 +508,25 @@ steps abandoned, and intent that leaves no row.
       period there, and a screen view is the best answer to "when did we last
       see them".
 
+### Found by the console, in the console's own numbers
+
+- [x] **The integration suite was leaking a workspace per run.**
+      `referrals.test.ts` kept its cleanup inside the first `describe`, so the
+      workspace the second one created was never removed. Invisible until
+      /admin started counting workspaces: two fixture rows out of five made
+      the activation funnel read "5 signed up, 1 onboarded" when the truth was
+      three real workspaces. The `afterAll` is now at file level, so it covers
+      any suite that calls `workspace()` — including the third one somebody
+      adds later.
+- [x] **`scripts/tidy-fixtures.mjs`**, for the rows already left behind and
+      the next suite that forgets. A fixture is identified by two things
+      agreeing — a slug the suites mint *and* no members, since
+      `create_workspace` always makes an owner — and anything matching one but
+      not the other is printed and skipped. Dry by default.
+- [ ] Two `Ref orphan …` workspaces from earlier runs are still in production.
+      `node scripts/tidy-fixtures.mjs --apply` removes them; left for the
+      founder to trigger, since it deletes live rows.
+
 ### Not captured, and the reason
 
 - **Nothing before signup.** Capture needs a session, so there is no anonymous
