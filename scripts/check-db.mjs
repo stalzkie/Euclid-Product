@@ -11,6 +11,7 @@ const tables = [
   "build_prompts", "build_prompt_messages", "changelog_entries", "changelog_posts",
   "chat_threads", "chat_messages", "recommendations", "activity",
   "rate_limits", "email_outbox", "magic_links", "jobs",
+  "analytics_events",
 ];
 
 let ok = 0;
@@ -31,6 +32,9 @@ const rpcs = [
   ["roll_usage_period", { p_workspace: "00000000-0000-0000-0000-000000000000" }],
   ["check_rate_limit", { p_board: "00000000-0000-0000-0000-000000000000", p_bucket: "t", p_actor: "t", p_max: 1, p_window: "1 hour" }],
   ["match_posts", { p_board: "00000000-0000-0000-0000-000000000000", p_embedding: new Array(1536).fill(0), p_exclude: null, p_threshold: 0.8, p_limit: 1 }],
+  // 36500 days, so existence is checked without deleting anything: the
+  // function removes rows older than the window it is given.
+  ["prune_analytics_events", { p_days: 36500 }],
 ];
 
 let rok = 0;

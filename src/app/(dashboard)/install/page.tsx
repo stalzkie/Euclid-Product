@@ -9,6 +9,7 @@ import { redactWebhook, type IntegrationKind } from "@/lib/integrations";
 import { verificationRecord } from "@/lib/domains";
 import { listApiKeys } from "./key-actions";
 import type { IntegrationSummary } from "./integrations-panel";
+import { TrackScreen } from "@/components/track";
 
 /** Where founders point a CNAME: this deployment's own hostname. */
 function cnameTarget(): string {
@@ -57,6 +58,7 @@ export default async function InstallPage() {
 
   return (
     <Shell active="install" ctx={ctx} wide>
+      <TrackScreen name="screen.install" />
       <InstallView
         board={{
           id: ctx.board.id,

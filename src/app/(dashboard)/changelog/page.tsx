@@ -5,6 +5,7 @@ import { listChangelog, listPostSummaries } from "@/server/queries";
 import { hasAnthropic } from "@/lib/ai/client";
 import { ChangelogView } from "./changelog-view";
 import type { ChangelogEntry } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 13 · Changelog. */
 export default async function ChangelogPage({
@@ -53,6 +54,7 @@ export default async function ChangelogPage({
 
   return (
     <Shell active="changelog" ctx={ctx} wide>
+      <TrackScreen name="screen.changelog" />
       <ChangelogView
         entries={entries as ChangelogEntry[]}
         selected={selected as ChangelogEntry | null}

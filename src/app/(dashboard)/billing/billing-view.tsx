@@ -7,6 +7,7 @@ import { Icon } from "@/components/icons";
 import { Banner, Button, Input, Meter, SectionTitle, cx } from "@/components/ui";
 import { Segmented, Spinner } from "@/components/controls";
 import { useToast } from "@/components/motion";
+import { track } from "@/lib/analytics/client";
 import { PLANS, PLAN_ORDER } from "@/lib/plans";
 import { INDIE3, WAITLIST, type Promo } from "@/lib/polar";
 import { longDate } from "@/lib/format";
@@ -500,6 +501,25 @@ export function BillingView({
                     }
                     disabled={isCurrent || pending}
                     onClick={() => {
+                      /*
+                        Captured before the navigation, not after.
+
+                        Clicking this is the last thing Euclid can see: the
+                        next hop is polar.sh, and if they do not pay there is
+                        no row anywhere saying they ever tried. "Clicked
+                        upgrade, never subscribed" is the most actionable
+                        sentence this console can produce, and it needs this
+                        one line to exist.
+                      */
+                      if (!isCurrent) {
+                        track("billing.upgrade_clicked", {
+                          tier,
+                          period,
+                          from: plan,
+                          promo: (promoOn(tier) && promo) || "none",
+                        });
+                      }
+
                       // With Polar configured, buying is a trip to checkout and
                       // leaving is a trip to the portal. Neither is a server
                       // action: the plan only moves when the webhook says the

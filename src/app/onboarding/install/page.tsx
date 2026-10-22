@@ -4,6 +4,7 @@ import { appOrigin } from "@/lib/origin";
 import { InstallStep } from "./install-step";
 import { mergeDesign } from "@/lib/design-presets";
 import type { StackItem } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 04 · Onboarding — install. */
 export default async function OnboardingInstallPage() {
@@ -39,18 +40,21 @@ export default async function OnboardingInstallPage() {
   if (!board) redirect("/onboarding/app");
 
   return (
-    <InstallStep
-      boardPublicId={board.public_id}
-      boardName={board.name}
-      origin={await appOrigin()}
-      mode={mergeDesign(board.design).mode}
-      identityMode={board.identity_mode}
-      allowedDomains={board.allowed_domains}
-      stack={(profile?.stack as StackItem[] | null) ?? []}
-      // Set the first time the widget is served to a page that is not ours.
-      // A post is not the signal: it needs a user to turn up as well as an
-      // install, and this step is waiting on the install alone.
-      installed={board.installed_at !== null}
-    />
+    <>
+      <TrackScreen name="onboarding.install" />
+      <InstallStep
+        boardPublicId={board.public_id}
+        boardName={board.name}
+        origin={await appOrigin()}
+        mode={mergeDesign(board.design).mode}
+        identityMode={board.identity_mode}
+        allowedDomains={board.allowed_domains}
+        stack={(profile?.stack as StackItem[] | null) ?? []}
+        // Set the first time the widget is served to a page that is not ours.
+        // A post is not the signal: it needs a user to turn up as well as an
+        // install, and this step is waiting on the install alone.
+        installed={board.installed_at !== null}
+      />
+    </>
   );
 }

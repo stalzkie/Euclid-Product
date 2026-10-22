@@ -28,6 +28,7 @@ import {
   listPosts,
   listThemes,
 } from "@/server/queries";
+import { TrackScreen } from "@/components/track";
 
 /** 05 · Home — what this board's users asked for this week. */
 export default async function HomePage() {
@@ -66,6 +67,7 @@ export default async function HomePage() {
 
   return (
     <Shell active="home" ctx={ctx}>
+      <TrackScreen name="screen.home" />
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-[26px] font-semibold tracking-[-0.015em]">

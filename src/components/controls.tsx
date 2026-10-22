@@ -429,8 +429,21 @@ export function CopyButton({
   );
 }
 
-/** Small icon-only copy, for code blocks. */
-export function CopyIconButton({ text }: { text: string }) {
+/**
+ * Small icon-only copy, for code blocks.
+ *
+ * `onCopied` is optional and fires after the write, the same contract
+ * `CopyButton` already had. Two call sites use it to record that the install
+ * snippet was taken — copying it and never installing is the most useful
+ * thing there is to know about a stalled board, and nothing else records it.
+ */
+export function CopyIconButton({
+  text,
+  onCopied,
+}: {
+  text: string;
+  onCopied?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -448,6 +461,7 @@ export function CopyIconButton({ text }: { text: string }) {
       onClick={async () => {
         await navigator.clipboard.writeText(text).catch(() => {});
         setCopied(true);
+        onCopied?.();
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => setCopied(false), 1800);
       }}

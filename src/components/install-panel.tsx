@@ -9,6 +9,7 @@ import { InstallPing } from "./install-ping";
 import { FRAMEWORKS, agentInstallPrompt, installSnippet } from "@/lib/snippets";
 import { diagnose, type InstallSignal } from "@/lib/install-doctor";
 import { plural } from "@/lib/format";
+import { track } from "@/lib/analytics/client";
 import type { EmbedMode, IdentityMode, StackItem } from "@/lib/types";
 
 /**
@@ -162,7 +163,18 @@ export function InstallPanel({
         <div className="overflow-hidden rounded-card border border-line">
           <div className="flex items-center justify-between border-b border-line bg-subtle px-4 py-2">
             <span className="font-mono text-[12.5px] text-ink-2">{spec.filename}</span>
-            <CopyIconButton text={code} />
+            {/*
+              Taking the snippet is the last thing that happens before an
+              install either works or silently does not, and it is the only
+              step of it that leaves no row: `boards.installed_at` stays null
+              whether they pasted it badly or never pasted it at all. The
+              framework rides along because "everyone who picked Webflow
+              stalls" is a different bug from "installs are broken".
+            */}
+            <CopyIconButton
+              text={code}
+              onCopied={() => track("install.snippet_copied", { framework: spec.id })}
+            />
           </div>
           <pre className="thin-scroll overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-[1.7] text-ink-deep">
             {code}
@@ -327,7 +339,10 @@ export function InstallPanel({
         <div className="overflow-hidden rounded-control border border-line bg-canvas">
           <div className="flex items-center justify-between border-b border-line bg-subtle px-3 py-2">
             <span className="font-mono text-[12px] text-ink-2">install-euclid.md</span>
-            <CopyIconButton text={agentPrompt} />
+            <CopyIconButton
+              text={agentPrompt}
+              onCopied={() => track("install.agent_prompt_copied", { framework: spec.id })}
+            />
           </div>
           <pre className="thin-scroll max-h-[320px] overflow-auto px-3 py-3 font-mono text-[12px] leading-[1.65] text-ink-deep">
             {agentPrompt}

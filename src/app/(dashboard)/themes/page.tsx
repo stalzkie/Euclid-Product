@@ -3,6 +3,7 @@ import { requireFounder } from "@/server/context";
 import { listThemes, getStatusCounts } from "@/server/queries";
 import { hasAnthropic } from "@/lib/ai/client";
 import { ThemesView } from "./themes-view";
+import { TrackScreen } from "@/components/track";
 
 /** 08 · Themes — posts grouped by meaning, not keywords. */
 /**
@@ -20,6 +21,7 @@ export default async function ThemesPage() {
 
   return (
     <Shell active="themes" ctx={ctx}>
+      <TrackScreen name="screen.themes" />
       <ThemesView
         themes={themes.map((t) => ({
           id: t.id,

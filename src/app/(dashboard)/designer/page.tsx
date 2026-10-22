@@ -4,6 +4,7 @@ import { listPosts } from "@/server/queries";
 import { mergeDesign } from "@/lib/design-presets";
 import { PLANS } from "@/lib/plans";
 import { DesignerView } from "./designer-view";
+import { TrackScreen } from "@/components/track";
 
 /** 12 · Board designer. */
 export default async function DesignerPage() {
@@ -13,6 +14,7 @@ export default async function DesignerPage() {
 
   return (
     <Shell active="designer" ctx={ctx} wide>
+      <TrackScreen name="screen.designer" />
       <DesignerView
         boardId={ctx.board.id}
         boardName={ctx.board.name}

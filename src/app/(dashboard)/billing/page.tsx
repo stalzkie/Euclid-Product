@@ -15,6 +15,7 @@ import {
 import { studentVerificationActive, studentVerificationExpiry } from "@/lib/student";
 import { onWaitlist } from "@/server/waitlist";
 import { BillingView } from "./billing-view";
+import { TrackScreen } from "@/components/track";
 
 /** 14 · Plan and credits, plus the workspace settings nav around it. */
 export default async function BillingPage() {
@@ -81,6 +82,7 @@ export default async function BillingPage() {
 
   return (
     <Shell active="settings" ctx={ctx} wide>
+      <TrackScreen name="screen.billing" />
       <BillingView
         workspaceName={ctx.workspace.name}
         plan={ctx.workspace.plan}

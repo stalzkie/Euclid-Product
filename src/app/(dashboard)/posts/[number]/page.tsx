@@ -5,6 +5,7 @@ import { getPost, listThemes } from "@/server/queries";
 import { supabaseServer } from "@/lib/supabase/server";
 import { PLANS } from "@/lib/plans";
 import { PostDetailView } from "./post-view";
+import { TrackScreen } from "@/components/track";
 
 /** 07 · Post detail. */
 export default async function PostPage({
@@ -34,6 +35,7 @@ export default async function PostPage({
 
   return (
     <Shell active="feedback" ctx={ctx}>
+      <TrackScreen name="screen.post" />
       <PostDetailView
         post={post}
         boardName={ctx.board.name}

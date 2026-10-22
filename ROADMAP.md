@@ -414,6 +414,95 @@ will, and the reason to build them anyway is one place and one bill.
       answers against real data, the funnel reads cumulatively so the old
       "Paid 200%" cannot recur, and the errors panel is empty.
 - [ ] Panel 3 gains "redeemed" once Bernn exposes it — see section 1.
+- [x] **`0032_analytics_events.sql` applied, 2026-10-22.** Checked by effect:
+      a row inserted with no `source` and no timestamp came back stamped
+      `dashboard` and dated by the database; a name without a dot and a
+      `source` outside the four legal values were both refused with `23514`;
+      `prune_analytics_events(36500)` ran and removed nothing. 23/23 tables
+      and 9/9 functions in `scripts/check-db.mjs`.
+
+### 3b · The console rebuild, 2026-10-22
+
+Asked for in three sentences: no sidebar, show the e-mail addresses wherever
+possible, and make it detailed enough to compete with PostHog.
+
+- [x] **No sidebar.** `/admin` has its own layout — a near-black bar, a tab
+      strip, no founder nav. Carrying the sidebar into a screen that reads
+      every workspace invites clicking "Feedback" and landing back in one.
+- [x] **Ten tabs**: Overview, People, Workspaces, Events, Behaviour,
+      Retention, Boards, Billing, Mail, Errors, plus a person page per login.
+- [x] **Addresses everywhere.** A founder's address lives in `auth.users` and
+      needs the auth admin API rather than a select; a visitor's is
+      `end_users.email`. Both are shown in full, in mono, as `mailto:` links —
+      this screen exists to answer "who wrote in", and a console that redacts
+      the one field it exists to show is one you work around with SQL.
+- [x] **Shape**: `admin-data.ts` reads every table once per request,
+      `admin-model.ts` derives every panel as pure functions, and
+      `admin-console.ts` memoises the pair. 54 unit tests on the derivations,
+      6 read-only integration tests against the live database.
+- [x] **One event stream, many panels.** `deriveEvents` reads state as a
+      timeline, and trends, retention, stickiness, the feed and every "last
+      seen" column are slices of that one list.
+- [x] **The read cap bug.** `.limit(20000)` returned 1 000 of the 1 085 rows
+      in `votes`, because PostgREST applies `db-max-rows` after the limit —
+      every total was 85 short and the `truncated` flag said nothing, since
+      1 000 is not 20 000. `read()` pages with `.range()` and decides
+      truncation against the exact count. Paging also needs a unique column in
+      the `ORDER BY`: the seeded votes share a `created_at` to the microsecond,
+      and tied rows can come back in a different order per page.
+
+### 3c · Captured events — the blind spot state cannot cover
+
+**The question in the note above came up**, which is what `0032` is for. It is
+deliberately the smallest table that answers it: screens opened, onboarding
+steps abandoned, and intent that leaves no row.
+
+- [x] `0032_analytics_events.sql` — the table, four indexes, no RLS policies
+      (service-role writer, operator reader, exactly as `error_events`), and
+      `prune_analytics_events` on a 180-day window from the daily job.
+- [x] **The client sends a name, a path and properties — nothing else.** The
+      user comes from the session, the workspace and board are read back under
+      RLS, and the database stamps the time. A route that took a
+      `workspace_id` from its caller would let any founder write into another
+      workspace's numbers.
+- [x] **An allow-list, not a free text column.** `EVENT_CATALOGUE` in
+      `src/lib/analytics/events.ts`, with a check constraint under it. A test
+      asserts every catalogue name passes that constraint, because a name that
+      passed one and failed the other would be an event silently never
+      recorded.
+- [x] **Nothing derivable is captured.** `prompt.copied`, `designer.saved` and
+      `install.doctor_run` were each written and then cut — the first two are
+      already rows, and the third would have measured a polling effect rather
+      than a person. A test pins their absence.
+- [x] **Properties are scrubbed, not trusted**: flat scalars only, ten keys,
+      120 characters, and anything shaped like an e-mail address is dropped.
+      The route already knows who sent the event.
+- [x] **Paths are routes.** `/posts/42?from=home` is stored as `/posts/:n`, so
+      one screen is one row and no token or address rides in on a query string.
+- [x] **Behaviour tab**: onboarding step by step with the addresses that
+      stopped at each one, screens by people rather than views, sessions,
+      routes, property breakdowns — and two panels that join captured intent
+      to product state: *copied the install snippet, never installed* and
+      *clicked upgrade, never subscribed*. Those two are the thing no
+      general-purpose tool can produce, because it does not know what
+      `boards.installed_at` means.
+- [x] **The operator is excluded by default.** Whoever reads this screen also
+      opens every other screen all day; with them included the busiest screen
+      is always whichever one was last being debugged.
+- [x] 24 unit tests on the capture rules, 12 on the behaviour derivations, 4
+      browser specs that skip until the migration lands.
+
+### Not captured, and the reason
+
+- **Nothing before signup.** Capture needs a session, so there is no anonymous
+  write path into a table that spans every workspace. The top of the funnel
+  stays derived from `workspaces.created_at`.
+- **Nothing from the widget.** `source` has `widget` and `board` as legal
+  values so that adding it later is a row rather than a migration, but a
+  public capture endpoint is an unbounded insert anyone can call, and
+  `install_signals` already answers the question the widget would be asked.
+- **No session replay, flags or experiments.** Not attempted, and not what
+  this is for.
 
 ---
 

@@ -7,6 +7,7 @@ import { MotionPanel } from "./motion-panel";
 import { cookies } from "next/headers";
 import { REDUCE_MOTION_COOKIE, isReduceMotionValue } from "@/lib/motion/preference";
 import { readRepoStatus } from "./repo-actions";
+import { TrackScreen } from "@/components/track";
 
 /** Project profile — the context that makes every Build Prompt specific. */
 export default async function ProfilePage() {
@@ -18,6 +19,7 @@ export default async function ProfilePage() {
 
   return (
     <Shell active="profile" ctx={ctx} wide>
+      <TrackScreen name="screen.profile" />
       <ProfileEditor
         stack={(ctx.profile?.stack as StackItem[] | null) ?? []}
         conventions={ctx.profile?.conventions ?? ""}

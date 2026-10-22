@@ -10,6 +10,7 @@ import {
 import { PLANS } from "@/lib/plans";
 import { InsightsView } from "./insights-view";
 import type { PromptTarget } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 11 · Insights. */
 export default async function InsightsPage({
@@ -84,6 +85,7 @@ export default async function InsightsPage({
 
   return (
     <Shell active="insights" ctx={ctx}>
+      <TrackScreen name="screen.insights" />
       <InsightsView
         days={days}
         series={series}

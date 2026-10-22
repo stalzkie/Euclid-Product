@@ -43,6 +43,16 @@ export const LIMITS = {
     let someone pay us — which is a far worse trade than the one it guards.
   */
   billing: { max: 10, window: "1 minute", failOpen: true },
+  /*
+    Captured events, per founder.
+
+    Sixty flushes a minute is far above a person opening screens — the client
+    batches on a 1.5-second timer, so sustained use is forty — and far below a
+    script. Fails open for the same reason the billing bucket does, inverted:
+    the cost of being wrong is losing analytics, which is cheaper than the
+    limiter's own outage turning into an error on somebody's dashboard.
+  */
+  analytics: { max: 60, window: "1 minute", failOpen: true },
 } as const;
 
 export type LimitBucket = keyof typeof LIMITS;

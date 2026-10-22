@@ -11,6 +11,7 @@ import { InboxTable } from "./inbox-table";
 import { MergeQueue } from "./merge-queue";
 import { HeldQueue } from "./held-queue";
 import { listHeldPosts, listMergeQueue } from "./actions";
+import { TrackScreen } from "@/components/track";
 
 /** 06 · Feedback inbox — every post on this board, ranked by votes. */
 export default async function FeedbackPage({
@@ -37,6 +38,7 @@ export default async function FeedbackPage({
 
   return (
     <Shell active="feedback" ctx={ctx}>
+      <TrackScreen name="screen.feedback" />
       {showHeld ? (
         <HeldQueue posts={held} boardName={board.name} />
       ) : showMerges ? (

@@ -17,6 +17,7 @@ import { PLANS } from "@/lib/plans";
 import { targetSpec } from "@/lib/ai/targets";
 import { ago } from "@/lib/format";
 import type { PromptTarget } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** Build Prompts: what has been generated, and what to generate next. */
 export default async function PromptsPage() {
@@ -61,6 +62,7 @@ export default async function PromptsPage() {
 
   return (
     <Shell active="prompts" ctx={ctx}>
+      <TrackScreen name="screen.prompts" />
       <PageHeader
         title="Build Prompts"
         subtitle="Every prompt you have generated, and the requests worth prompting next."

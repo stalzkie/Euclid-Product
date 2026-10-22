@@ -7,6 +7,7 @@ import { defaultTargetFor } from "@/lib/ai/targets";
 import { postIdForNumber, postSubject, profileSummary, promptHistory, themeSubject } from "@/server/prompts";
 import { PromptWorkbench } from "../prompt-workbench";
 import type { PromptTarget } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 09 · Build Prompt, before anything is generated. */
 /**
@@ -41,6 +42,7 @@ export default async function NewPromptPage({
 
   return (
     <Shell active="prompts" ctx={ctx} wide>
+      <TrackScreen name="screen.prompt_new" />
       <PromptWorkbench
         subject={subject}
         profile={profileSummary(ctx)}

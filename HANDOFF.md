@@ -90,29 +90,107 @@ Playwright specs, all run green on 2026-10-20 against the real database.
 
 Repo: https://github.com/stalzkie/Euclid-Product (public, `main`)
 
+**2026-10-22: `/admin` became an operator console.** It was one page with six
+panels; it is now ten tabs with no sidebar, and the thing it is built around
+is that **every row names a person**. The address of a founder lives in
+`auth.users` and needs the auth admin API rather than a select, so
+`admin-data.ts` fetches it alongside the tables; a visitor's address is
+`end_users.email` where the board asks for one. The tabs: Overview (MRR,
+trends, the funnel with the addresses that stopped at each step), People
+(logins and visitors, searchable, each with a profile page), Workspaces,
+Events, Retention, Boards, Billing, Mail, Errors.
+
+Shape, because it is the part worth keeping: `admin-data.ts` reads every table
+once per request, `admin-model.ts` derives every panel from that as **pure
+functions**, and `admin-console.ts` memoises the pair. One idea carries the
+lot — *one event stream, many panels*. `deriveEvents` reads state as a
+timeline (a post is an event, a vote is an event, a top-up is an event) and
+trends, retention, stickiness, the feed and every "last seen" column are
+slices of that one list. Nothing is captured at a call site, so the stream is
+complete back to the first row ever written and cannot drift from the tables
+it describes. 54 unit tests cover the derivations; six read-only integration
+tests cover them against the live database.
+
+**2026-10-22, second half: captured events.** The note under the old funnel
+said arbitrary events — "how many people opened the designer" — would wait
+until the question came up. It came up. `0032_analytics_events.sql` is the
+answer and it is deliberately the smallest table that works: screens opened,
+onboarding steps abandoned, and intent that leaves no row (the install snippet
+copied, the upgrade button clicked). Nothing derivable is captured —
+`prompt.copied`, `designer.saved` and `install.doctor_run` were each written
+and then cut, because the first two are already rows and the third would have
+measured a polling effect rather than a person.
+
+**`0032` is applied, and was checked by effect rather than by presence.**
+`scripts/check-db.mjs` reports 23/23 tables and 9/9 functions; beyond that, a
+row inserted with no `source` and no timestamp came back stamped
+`dashboard` and dated by the database, a name without a dot was refused with
+`23514`, so was a `source` outside the four legal values, and
+`prune_analytics_events(36500)` ran and removed nothing. The probe row was
+deleted, so the table starts empty.
+
+The console still tells "not migrated" apart from "could not read" — a slice
+carries `missing` separately from `error` — which is what the next migration
+will land into. An alarm for something the operator is about to do themselves
+trains them to ignore alarms.
+
+How it is wired, and the part worth not undoing: the browser sends a name, a
+path and some properties. It does **not** send who it is. The user comes from
+the session, the workspace and board are read back under RLS, and the database
+stamps the time — the same argument `0030` made about the retry clock. Names
+are an allow-list (`src/lib/analytics/events.ts`) with a check constraint
+under it; properties are flat scalars only, ten keys, 120 characters, and
+anything shaped like an address is dropped; paths are stored as routes, so
+`/posts/42?from=home` becomes `/posts/:n` and no token rides in on a query
+string. Capture needs a session, so nothing before signup is recorded.
+
+The Behaviour tab is where it is read, and two of its panels are the reason
+the table exists at all: *copied the install snippet, never installed* and
+*clicked upgrade, never subscribed*, both with addresses. A general analytics
+tool can count the click and a database can count the subscription; only
+something holding both can hand over the list of people who tried and did not
+arrive.
+
+**The bug that console found in itself, on its first run against real data.**
+Reading a table with `.limit(20000)` returned exactly 1 000 of the 1 085 rows
+in `votes`: PostgREST applies its own `db-max-rows` *after* the limit. Every
+total was 85 short and the `truncated` flag that exists to catch precisely
+that said nothing, because 1 000 is not 20 000. `read()` now pages with
+`.range()` and decides truncation by comparing what it got against the exact
+count. Two consequences worth remembering before writing another admin query:
+**no read of a whole table can trust `.limit()`**, and paging needs a unique
+column in the `ORDER BY` — the seeded votes share a `created_at` to the
+microsecond, and tied rows may come back in a different order per page, which
+duplicates some rows and drops others.
+
 ## Current state
 
 Everything in the PRD is built, plus billing and student verification, which
 the PRD did not specify. **The app is live at `https://app.euclidhq.com`.**
 
 ```
-npm run verify            # typecheck + lint + 597 unit tests
-npm run test:integration  # 71 tests, needs the app running
-npm run test:e2e          # 21 browser tests, needs the app running
+npm run verify            # typecheck + lint + 704 unit tests
+npm run test:integration  # 77 tests, needs the app running
+npm run test:e2e          # 25 browser tests, needs the app running
 npx next build            # production build
 ```
 
-Counts at 2026-10-20, all three suites run green that day: **597 unit tests
-across 31 files**, **71 integration tests across 6 files**, **21 browser
-specs across 5 files**, lint clean with zero warnings.
+**704 unit tests across 34 files** and the production build, both green on
+2026-10-22, lint clean with zero warnings. The integration suite is **77
+tests across 7 files** and the browser suite **25 specs across 6 files**; of
+those, `tests/integration/admin-console.test.ts` was run on 2026-10-22 and the
+rest were last run in full on 2026-10-20. `tests/e2e/analytics.spec.ts` skips
+itself until `0032` is applied.
 
 The integration and browser suites need a *built* app — `npx next build &&
 npm run start`, not `next dev` — and with no Docker on this machine they run
 against the production Supabase project, creating and destroying their own
 fixtures. Both print their target before starting.
 
-**Thirty migrations, all applied to the live database**, `0030` as of
-2026-10-20. `0011_billing`,
+**Thirty-two migrations, all applied to the live database**, `0032` as of
+2026-10-22 — confirmed by `node scripts/check-db.mjs` (23/23 tables, 9/9
+functions) and by the constraint checks described in the 2026-10-22 note
+above. `0011_billing`,
 `0012_student` and `0013_workspace_bootstrap` were confirmed present in
 production by querying `pg_proc` for `apply_subscription`, `verify_student`
 and `create_workspace`. `0014_definer_search_path` was confirmed by checking

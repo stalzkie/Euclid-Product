@@ -5,6 +5,7 @@ import { deliverIntegrationEvents } from "@/server/integrations";
 import { authorizeCron } from "@/server/cron";
 import { topUpPartnerPool } from "@/server/partner";
 import { appOrigin } from "@/lib/origin";
+import { pruneAnalytics } from "@/server/analytics";
 
 /**
  * The queue drain. Anything slow or expensive — emails, embeddings backfill,
@@ -53,6 +54,18 @@ export async function POST(request: NextRequest) {
   const { data: prunedSignals } = await db.rpc("prune_install_signals");
 
   /*
+    Captured events past the retention window.
+
+    This is the first table that grows with attention rather than with
+    intent — a founder who reads six screens writes six rows and leaves no
+    other trace — so it is the first that needs a ceiling rather than an
+    archive. 180 days: behavioural questions are asked about the last few
+    weeks, and a row from six months ago answers nothing that `posts`,
+    `boards` and `build_prompts` do not answer better and permanently.
+  */
+  const prunedEvents = await pruneAnalytics();
+
+  /*
     Refill the Bernn promo-code pool.
 
     Here rather than anywhere nearer the purchase, deliberately: minting is
@@ -73,6 +86,7 @@ export async function POST(request: NextRequest) {
     pruned: pruned ?? 0,
     prunedErrors: prunedErrors ?? 0,
     prunedSignals: prunedSignals ?? 0,
+    prunedEvents,
     partner,
   });
 }

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isConfigured, supabaseServer } from "@/lib/supabase/server";
 import { AppStepForm } from "./app-form";
+import { TrackScreen } from "@/components/track";
 
 /** 02 · Onboarding — your app. */
 export default async function OnboardingAppPage() {
@@ -26,10 +27,13 @@ export default async function OnboardingAppPage() {
         | undefined);
 
   return (
-    <AppStepForm
-      initialName={ws?.app_name ?? ""}
-      initialUrl={(ws?.app_url ?? "").replace(/^https?:\/\//, "")}
-      initialTools={ws?.coding_tools ?? ["Claude Code", "Cursor"]}
-    />
+    <>
+      <TrackScreen name="onboarding.app" />
+      <AppStepForm
+        initialName={ws?.app_name ?? ""}
+        initialUrl={(ws?.app_url ?? "").replace(/^https?:\/\//, "")}
+        initialTools={ws?.coding_tools ?? ["Claude Code", "Cursor"]}
+      />
+    </>
   );
 }

@@ -7,6 +7,7 @@ import { hasAnthropic } from "@/lib/ai/client";
 import { postSubject, profileSummary, promptHistory, themeSubject } from "@/server/prompts";
 import { PromptWorkbench } from "../prompt-workbench";
 import type { BuildPrompt } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** A saved Build Prompt, reopened. */
 /**
@@ -50,6 +51,7 @@ export default async function PromptPage({
 
   return (
     <Shell active="prompts" ctx={ctx} wide>
+      <TrackScreen name="screen.prompt" />
       <PromptWorkbench
         subject={subject}
         profile={profileSummary(ctx)}

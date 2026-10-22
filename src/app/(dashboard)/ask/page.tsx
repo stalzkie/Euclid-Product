@@ -6,6 +6,7 @@ import { hasAnthropic } from "@/lib/ai/client";
 import { AskEuclidView } from "./ask-view";
 import { listThreads } from "./actions";
 import type { ChatMessage } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 10 · Ask Euclid. */
 /**
@@ -39,6 +40,7 @@ export default async function AskPage({
 
   return (
     <Shell active="none" ctx={ctx} wide>
+      <TrackScreen name="screen.ask" />
       <AskEuclidView
         threadId={threadId}
         threads={threads}

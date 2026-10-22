@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { isConfigured, supabaseServer } from "@/lib/supabase/server";
 import { ProfileStepForm } from "./profile-form";
 import type { StackItem } from "@/lib/types";
+import { TrackScreen } from "@/components/track";
 
 /** 03 · Onboarding — project profile. */
 export default async function OnboardingProfilePage() {
@@ -26,11 +27,14 @@ export default async function OnboardingProfilePage() {
     .maybeSingle();
 
   return (
-    <ProfileStepForm
-      initialStack={(profile?.stack as StackItem[] | null) ?? []}
-      initialConventions={profile?.conventions ?? ""}
-      initialRules={profile?.rules_file ?? null}
-      initialRulesName={profile?.rules_file_name ?? "CLAUDE.md"}
-    />
+    <>
+      <TrackScreen name="onboarding.profile" />
+      <ProfileStepForm
+        initialStack={(profile?.stack as StackItem[] | null) ?? []}
+        initialConventions={profile?.conventions ?? ""}
+        initialRules={profile?.rules_file ?? null}
+        initialRulesName={profile?.rules_file_name ?? "CLAUDE.md"}
+      />
+    </>
   );
 }
