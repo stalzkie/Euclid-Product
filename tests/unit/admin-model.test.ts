@@ -304,11 +304,19 @@ describe("trend", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("revenue", () => {
-  it("counts a yearly subscription at its per-month price", () => {
-    // Billing a whole year in January does not make January worth twelve
-    // months. Indie is $12 monthly and $10 a month billed yearly.
+  it("spreads a yearly subscription over the year", () => {
+    /*
+      Billing a whole year in January does not make January worth twelve
+      months. Indie is $12 monthly and $100 for the year, so a yearly
+      subscriber is worth $8.33 a month.
+
+      Divided from the annual total rather than read from `yearlyPerMonth`:
+      that field is a display string rounded for a price card, and twelve of
+      them come to $99.96 rather than the $100 actually charged.
+    */
     expect(monthlyCents(workspace({ plan: "indie", billing_period: "monthly" }))).toBe(1200);
-    expect(monthlyCents(workspace({ plan: "indie", billing_period: "yearly" }))).toBe(1000);
+    expect(monthlyCents(workspace({ plan: "indie", billing_period: "yearly" }))).toBe(833);
+    expect(monthlyCents(workspace({ plan: "pro", billing_period: "yearly" }))).toBe(2000);
   });
 
   it("keeps trials and comped workspaces out of MRR", () => {

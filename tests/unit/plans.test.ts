@@ -25,10 +25,22 @@ describe("plan definitions", () => {
   });
 
   it("discounts the yearly price", () => {
+    /*
+      `yearly` is the annual total, not a per-month equivalent — it changed
+      meaning in "Quote yearly the way Polar charges it", and this assertion
+      came with it. Comparing it against `monthly` directly is what the old
+      version did, and it now compares $100 against $12.
+
+      The discount is against twelve months at the monthly rate, which is the
+      only comparison a customer can make.
+    */
     for (const tier of PLAN_ORDER) {
-      if (PLANS[tier].monthly > 0) {
-        expect(PLANS[tier].yearly).toBeLessThan(PLANS[tier].monthly);
-      }
+      if (PLANS[tier].monthly === 0) continue;
+      const year = PLANS[tier].monthly * 12;
+      expect(PLANS[tier].yearly).toBeLessThan(year);
+      // And the per-month figure on the card is consistent with the total it
+      // sits beside, to the cent it is rounded to.
+      expect(Number(PLANS[tier].yearlyPerMonth)).toBeCloseTo(PLANS[tier].yearly / 12, 1);
     }
   });
 

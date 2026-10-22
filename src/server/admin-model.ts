@@ -845,15 +845,23 @@ export function stickiness(events: AdminEvent[], now: Date): Stickiness {
 /**
  * What a workspace is worth a month, in cents.
  *
- * A yearly subscription is counted at its per-month price rather than the
+ * A yearly subscription is spread over the year rather than counted at the
  * amount charged, because the question this answers is "what does a month of
  * this business look like" — billing the whole year in January does not make
  * January worth twelve months.
+ *
+ * `PlanSpec.yearly` is the **annual total**, which is the figure on the card
+ * statement; it stopped being a per-month equivalent in "Quote yearly the way
+ * Polar charges it". So the division happens here, from the annual total,
+ * rather than reading `yearlyPerMonth` — that is a display string rounded for
+ * a price card ($8.33 × 12 is $99.96, not $100), and twelve of them would not
+ * add up to the year.
  */
 export function monthlyCents(w: Pick<WorkspaceRow, "plan" | "billing_period">): number {
   const spec = PLANS[w.plan];
   if (!spec) return 0;
-  return Math.round((w.billing_period === "yearly" ? spec.yearly : spec.monthly) * 100);
+  const cents = w.billing_period === "yearly" ? (spec.yearly * 100) / 12 : spec.monthly * 100;
+  return Math.round(cents);
 }
 
 export interface RevenueLine {
